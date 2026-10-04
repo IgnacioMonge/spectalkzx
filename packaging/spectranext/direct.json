@@ -1,8 +1,6 @@
 {
-  "resource": "SpecTalkZX direct HTTPS",
-  "version": {
-    "source": "../../release/version.txt"
-  },
+  "resource": "SpecTalkZX",
+  "version": "1.4.1",
   "minimum_firmware": "0.9-6fc153a3",
   "files": [
     {
