@@ -1,4 +1,42 @@
 <!DOCTYPE html>
+<html lang="en">
 <meta charset="utf-8">
-<title>SpecTalkZX</title>
-<p>SpecTalkZX Spectranext resource. Mount this HTTPS directory and load boot.zx.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpecTalkZX for Spectranext</title>
+<style>
+  body { background: #000; color: #d7d7d7; font: 16px/1.55 ui-monospace, Consolas, monospace;
+         max-width: 44rem; margin: 2.5rem auto; padding: 0 1rem; }
+  h1 { color: #fff; font-size: 1.8rem; margin: 0; }
+  h2 { color: #fff; font-size: 1.15rem; margin: 2rem 0 .5rem; }
+  .stripes { height: 6px; margin: .6rem 0 1.4rem;
+             background: linear-gradient(90deg, #d70000 0 25%, #d7d700 25% 50%, #00d700 50% 75%, #00d7d7 75%); }
+  code { color: #00d7d7; word-break: break-all; }
+  a { color: #d7d700; }
+  img { width: 100%; max-width: 682px; image-rendering: pixelated; border: 0; }
+  .muted { color: #8a8a8a; }
+</style>
+<h1>SpecTalkZX 1.4.1 Triton</h1>
+<div class="stripes"></div>
+<p>IRC client for the ZX Spectrum, Spectrum Next and the Spectranext cartridge.</p>
+<img src="https://raw.githubusercontent.com/IgnacioMonge/SpecTalkZX/main/images/snapshot-run-from-web.png"
+     alt="SpecTalkZX loading screen on Spectranext">
+
+<h2>Spectranext: run from the web</h2>
+<p>In the Spectranext menu choose <strong>Load Resource URL</strong> and enter<br>
+<code>https://ignaciomonge.github.io/SpecTalkZX/</code></p>
+<p>SpecTalkZX starts without installing anything. Configuration and bookmarks stay in
+the cartridge under <code>/CFG</code>.</p>
+
+<h2>Spectranext: install for use without the web</h2>
+<p>Enter <code>https://ignaciomonge.github.io/SpecTalkZX/install/</code> instead, then start
+<code>SPCTX.ZX</code> from local storage.</p>
+<p class="muted">Both options need cartridge firmware 0.9-6fc153a3 or later.</p>
+
+<h2>Classic ZX and Spectrum Next</h2>
+<p>Download the TAP set or the NEX from the
+<a href="https://github.com/IgnacioMonge/SpecTalkZX/releases/latest">latest release</a>.</p>
+
+<p><a href="https://github.com/IgnacioMonge/SpecTalkZX#readme">Documentation</a> ·
+<a href="https://github.com/IgnacioMonge/SpecTalkZX/blob/main/READMEsp.md">Leer en español</a> ·
+<a href="https://github.com/IgnacioMonge/SpecTalkZX/blob/main/CHANGELOG.md">Changes</a></p>
+</html>
