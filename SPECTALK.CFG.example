@@ -1,5 +1,6 @@
-; SpecTalkZX 1.4.0 example configuration
-; Copy as /SYS/CONFIG/SPECTALK.CFG or /SYS/SPECTALK.CFG on the SD card.
+; SpecTalkZX 1.4.1 example configuration
+; Classic and native Next: copy as /SYS/CONFIG/SPECTALK.CFG or /SYS/SPECTALK.CFG.
+; Spectranext: /CFG/SPECTALK.CFG in local cartridge XFS.
 ; Boolean values: 0=off, 1=on unless noted.
 
 nick=MyNick
@@ -8,10 +9,14 @@ port=6667
 pass=
 nickpass=
 nickserv=NickServ
+; authcmd= is written by /login once the service confirms it (plaintext).
+; Do not add it by hand: an empty value replaces nickpass.
 
 autoconnect=0
 autojoin=0
 channels=#spectrum,#zx
+; bookmark= is written by A in !bm: 1-5 starts with that bookmark,
+; 129-133 also enables autojoin, 128 disables both. Leave it out to use this file.
 
 theme=1
 timestamps=2

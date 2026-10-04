@@ -18,21 +18,23 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Plataforma-ZX%20Spectrum%20%7C%20Next%20%7C%20Spectranext-blue" alt="Plataforma: ZX Spectrum, Next y Spectranext">
   <img src="https://img.shields.io/badge/Licencia-GPLv2-green" alt="Licencia: GPLv2">
-  <img src="https://img.shields.io/badge/Versión-1.4.0-orange" alt="Versión: 1.4.0">
+  <img src="https://img.shields.io/badge/Versión-1.4.1-orange" alt="Versión: 1.4.1">
 </p>
 
 Versión actual:
-[SpecTalkZX 1.4.0 Proteus](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
+[SpecTalkZX 1.4.1 Triton](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
 
-La versión 1.4.0 añade soporte nativo para Spectrum Next y un nuevo sistema de
-paginación para el cartucho Spectranext. La edición Classic ZX/divMMC mantiene
-la misma interfaz, los mismos comandos y el mismo formato de configuración.
+La versión 1.4.1 arranca directamente desde la web en el cartucho Spectranext,
+aprende el acceso a los servicios IRC, aguanta el tráfico intenso de los
+canales y dibuja el texto más rápido. Classic ZX, Spectrum Next nativo y
+Spectranext comparten la misma interfaz, los mismos comandos y el mismo formato
+de configuración.
 
 ---
 
 ## Índice
 
-- [Novedades principales de 1.4.0](#novedades-principales-de-140)
+- [Novedades principales de 1.4.1](#novedades-principales-de-141)
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Inicio rápido](#inicio-rápido)
@@ -50,14 +52,18 @@ la misma interfaz, los mismos comandos y el mismo formato de configuración.
 
 ---
 
-## Novedades principales de 1.4.0
+## Novedades principales de 1.4.1
 
-- **Soporte nativo para Spectrum Next**, con la misma interfaz y los mismos
-  comandos IRC de SpecTalkZX.
-- **Nuevo sistema de paginación Spectranext**, que separa los datos IRC
-  entrantes de las pantallas y los comandos secundarios.
-- **Arranque más resistente en Next nativo**, con recuperación de un ESP que no
-  responde y cancelación mediante BREAK.
+- **Arranque desde la web en Spectranext**: una URL inicia el cliente, sin
+  instalar nada.
+- **Acceso automático a servicios**: `/login` aprende el acceso a NickServ o a
+  Q de QuakeNet cuando el servicio lo confirma y lo envía en cada conexión.
+- **Firme ante el tráfico intenso**: los canales concurridos y las listas
+  largas de nombres ya no pierden bloques de texto recibido.
+- **Texto más rápido**: las líneas de chat se dibujan un 25 % más rápido.
+- **Globo en color en Next nativo**: una nueva pantalla About animada.
+- **`!config` más claro**: cada ajuste aparece con su nombre en el fichero de
+  configuración.
 
 Consulta [CHANGELOG.md](CHANGELOG.md) para el historial completo de cambios
 visibles y las notas de compatibilidad.
@@ -68,14 +74,15 @@ visibles y las notas de compatibilidad.
 
 | Objetivo | Ordenador | Almacenamiento | Red |
 |---|---|---|---|
-| Classic | ZX Spectrum 48K, 128K, +2, +2A, +3 o compatible | SD con divMMC/esxDOS | UART soportada a 115200 baudios con ESP8266 o puente ESP-AT compatible |
+| Classic | ZX Spectrum 48K, 128K, +2, +2A, +3 o compatible | SD con divMMC/esxDOS | UART compatible con ZX-Uno, como la de divTIESUS, con un ESP8266 con ESP-AT a 115200 baudios |
 | Next nativo | ZX Spectrum Next con NextZXOS/esxDOS | Tarjeta SD para el NEX y `/SYS/CONFIG` o `/SYS` escribible | ESP interno configurado |
-| Spectranext | Modelo de ZX Spectrum compatible con el firmware del cartucho Spectranext | XFS local del cartucho | Wi-Fi nativo y sockets ROM del cartucho |
+| Spectranext | Modelo de ZX Spectrum compatible con el cartucho Spectranext | XFS local del cartucho para configuración y marcadores | Wi-Fi del cartucho; firmware `0.9-6fc153a3` o posterior |
 
 Classic utiliza <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
 <code>SPECTALK.DAT</code>. Conserva los tres ficheros de la misma versión.
-Spectranext instala su propio conjunto TAP, OVL y DAT en el almacenamiento del
-cartucho. Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo.
+Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo. Spectranext
+ejecuta sus ficheros desde la web o los instala en el almacenamiento del
+cartucho.
 
 ---
 
@@ -83,20 +90,22 @@ cartucho. Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo.
 
 ### ZX Classic / divMMC
 
-1. Descarga `spectalk_divmmc_v1.4.0.zip` desde la
-   [versión 1.4.0](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
+1. Descarga `spectalk_divmmc_v1.4.1.zip` desde la
+   [versión 1.4.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
 2. Copia <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
    <code>SPECTALK.DAT</code> al mismo directorio de la tarjeta SD.
 3. Configura el puente ESP-AT a **115200 baudios**. Las credenciales Wi-Fi se
    pueden preparar con [NetManZX](https://github.com/IgnacioMonge/NetManZX) o
-   una herramienta ESP-AT equivalente.
+   una herramienta ESP-AT equivalente. Si el ESP tiene desactivado el control
+   de flujo CTS, el primer intento de arranque muestra `FAIL`; pulsa una tecla y
+   el reintento lo activa para la sesión.
 4. Carga <code>SpecTalkZX.tap</code>, espera al indicador de red y conecta a
    IRC.
 
 ### Spectrum Next nativo
 
-1. Descarga `spectalk_next_v1.4.0.zip` desde la
-   [versión 1.4.0](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
+1. Descarga `spectalk_next_v1.4.1.zip` desde la
+   [versión 1.4.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
 2. Configura el ESP interno del Spectrum Next para la red Wi-Fi deseada.
 3. Copia <code>SPECTALK.NEX</code> a la tarjeta SD del Next.
 4. Ejecútalo desde el navegador de NextZXOS. La configuración y los marcadores
@@ -104,18 +113,28 @@ cartucho. Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo.
 
 ### Cartucho Spectranext
 
-El instalador público ofrece SpecTalkZX 1.4.0 y requiere firmware Spectranext
-`0.9-6fc153a3` o posterior.
+Las dos opciones requieren firmware del cartucho `0.9-6fc153a3` o posterior y
+conexión Wi-Fi. La configuración y los marcadores se guardan siempre en el XFS
+local, en <code>/CFG</code>.
 
-1. Conecta el cartucho a la red Wi-Fi.
-2. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
+**Arrancar desde la web.** No se instala nada y siempre usas la versión
+publicada.
+
+1. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
    <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
-3. El instalador guiado valida el paquete, escribe
+2. SpecTalkZX arranca tras una breve pantalla de carga; cualquier tecla la
+   salta.
+
+**Instalar para usarlo sin la web.**
+
+1. Selecciona **Load Resource URL** e introduce:
+   <code>https://ignaciomonge.github.io/SpecTalkZX/install/</code>.
+2. El instalador guiado valida el paquete, escribe
    <code>SPECTALK.TAP</code>, <code>SPECTALK.OVL</code>,
    <code>SPECTALK.DAT</code> y <code>SPCTX.ZX</code> en el XFS local, y
    arranca el cliente.
-4. En adelante inicia <code>SPCTX.ZX</code> desde el XFS local. Para
-   actualizar, vuelve a usar **Load Resource URL**; se conservan
+3. En adelante inicia <code>SPCTX.ZX</code> desde el XFS local. Para
+   actualizar, vuelve a ejecutar el instalador; se conservan
    <code>/CFG/SPECTALK.CFG</code> y los cinco marcadores.
 
 ---
@@ -141,22 +160,25 @@ Configuración inicial útil:
 Para guardar una sesión completa, abre `!bm`. En el gestor de marcadores,
 **ARRIBA/ABAJO** selecciona una ranura, **S** guarda la sesión actual, **A** la
 marca para el arranque, **ENTER** conecta, **D** borra y **BREAK** guarda y sale.
+**A** alterna autoconexión, autoconexión con autojoin y desactivado para el
+próximo arranque. También funciona estando conectado, sin cambiar la sesión actual.
 
 ---
 
 ## Capturas
 
-La galería combina capturas de la versión 1.4.0 para Spectrum Next nativo,
-Spectranext y Classic.
+La galería combina capturas de Spectrum Next nativo, Spectranext y Classic.
+Configuración, Acerca de y Novedades muestran la versión 1.4.1 Triton en una
+red de demostración ficticia.
 
 ### Primeros pasos y navegación
 
 <table>
   <tr>
     <td align="center" valign="top" width="50%">
-      <strong>Instalador guiado</strong><br>
-      <a href="images/snapshot-spectranext-installer.png"><img src="images/snapshot-spectranext-installer.png" width="420" alt="Instalador guiado de SpecTalkZX 1.4.0 en Spectranext"></a><br>
-      <sub>El instalador Spectranext escribe el cliente en el XFS local y conserva la configuración y los marcadores.</sub>
+      <strong>Arranque desde la web</strong><br>
+      <a href="images/snapshot-run-from-web.png"><img src="images/snapshot-run-from-web.png" width="420" alt="Pantalla de carga de SpecTalkZX al arrancar desde la web en Spectranext"></a><br>
+      <sub>Spectranext carga SpecTalkZX directamente desde su dirección web; cualquier tecla salta esta pantalla.</sub>
     </td>
     <td align="center" valign="top" width="50%">
       <strong>Elegir nick</strong><br>
@@ -228,8 +250,8 @@ Spectranext y Classic.
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Configuración</strong><br>
-      <a href="images/snapshot-config.png"><img src="images/snapshot-config.png" width="280" alt="Resumen de configuración"></a><br>
-      <sub>Toda la configuración activa puede revisarse sin salir del cliente.</sub>
+      <a href="images/snapshot-config.png"><img src="images/snapshot-config.png" width="280" alt="Resumen de configuración con los nombres del fichero de configuración"></a><br>
+      <sub>Cada ajuste activo aparece con el nombre que tiene en el fichero de configuración.</sub>
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Estado de conexión</strong><br>
@@ -245,13 +267,13 @@ Spectranext y Classic.
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Acerca de</strong><br>
-      <a href="images/snapshot-about.png"><img src="images/snapshot-about.png" width="280" alt="Pantalla About animada en Spectrum Next nativo"></a><br>
-      <sub>La Tierra animada y el banner de Spectrum Next nativo durante una conexión activa.</sub>
+      <a href="images/snapshot-about.png"><img src="images/snapshot-about.png" width="280" alt="Pantalla About con globo en color animado en Spectrum Next nativo"></a><br>
+      <sub>Spectrum Next nativo hace girar un globo en color sobre un campo de estrellas durante una conexión activa.</sub>
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Novedades</strong><br>
-      <a href="images/snapshot-changes.png"><img src="images/snapshot-changes.png" width="280" alt="Pantalla What's New de SpecTalkZX 1.4.0 Proteus en Spectrum Next"></a><br>
-      <sub>La pantalla 1.4.0 Proteus presenta la versión nativa para Next y el nuevo sistema de paginación Spectranext.</sub>
+      <a href="images/snapshot-changes.png"><img src="images/snapshot-changes.png" width="280" alt="Pantalla What's New de SpecTalkZX 1.4.1 Triton"></a><br>
+      <sub>La pantalla 1.4.1 Triton resume las novedades de la versión.</sub>
     </td>
   </tr>
 </table>
@@ -318,11 +340,45 @@ Spectranext y Classic.
 - Soporta CTCP `VERSION`, `PING`, `TIME` y `ACTION`.
 - NickServ se puede usar manualmente con `/id` o automáticamente con `nickpass=`.
 - `nickserv=` permite fijar el nick del servicio si la red no usa el nombre estándar `NickServ`.
+- La identificación automática solo acepta peticiones de ese nick configurado, o de `NickServ` por defecto; otros nombres requieren indicar `nickserv=`.
 - Los amigos se siguen con `!friend`; los resultados de JOIN/NAMES generan notificaciones compactas.
 - Los nicks ignorados se gestionan con `/ignore`, incluido el borrado con `-nick`.
 - El estado de ausencia admite `/away` manual y `!autoaway` por inactividad.
 - La comprobación periódica detecta desconexiones silenciosas y continúa durante About.
 - `!countsync` ayuda a mantener los contadores de usuarios durante sesiones largas.
+
+### Acceso a servicios
+
+`/login servicio comando [argumentos]` envía `PRIVMSG <servicio> :<comando>
+[argumentos]` y, cuando el servicio lo confirma, lo recuerda como tu acceso
+para las siguientes conexiones:
+
+```text
+/login NickServ IDENTIFY cuenta clave
+/login Q@CServe.quakenet.org AUTH cuenta clave
+```
+
+- **Confirmación.** El acceso solo se aprende con un NOTICE directo de ese
+  servicio a tu nick actual con una respuesta positiva reconocida, o con el
+  numeric `900` para ese nick. `already identified`, los errores y los avisos
+  de otros remitentes o dirigidos a otro nick no cuentan. Una respuesta no
+  reconocida deja el acceso pendiente, y `!save` y `S:STORE` lo rechazan.
+- **Guardado.** Un acceso confirmado se guarda automáticamente: en el marcador
+  desde el que se cargó, o en la configuración actual tras una conexión manual
+  con `/server`, donde `S:STORE` puede asociarlo a un marcador. Si falla la
+  escritura, se informa y queda pendiente de un `!save` manual.
+- **Siguiente conexión.** El acceso guardado se envía una vez, después del
+  MOTD.
+- **Reintentos.** Mientras un acceso está pendiente, otro `/login` no lo
+  sustituye. Si falla o no se reconoce, desconecta antes de volver a
+  intentarlo. Un acceso pendiente se descarta al desconectar; el último
+  confirmado permanece en disco y vuelve al recargar su marcador o reiniciar.
+- **Límites.** Un destino de servicio de hasta 31 caracteres y un comando de
+  hasta 63; se rechazan canales, varios destinos y el carácter `|`. El comando
+  se repite literalmente y se guarda en texto plano en la configuración y los
+  marcadores, así que solo funcionan credenciales reutilizables. No se admiten
+  SASL, CertFP, `PASS` IRC ni códigos OTP/TOTP cambiantes.
+- `/id` y `nickpass=` siguen disponibles como ruta clásica de IDENTIFY.
 
 ---
 ## Comandos
@@ -366,7 +422,8 @@ Los comandos de activación sin argumento alternan su estado; también aceptan
 | `/server [host [puerto]\|host:puerto]` | `/connect` | Sin argumentos muestra el estado o reconecta; con argumentos conecta al servidor indicado |
 | `/nick [nombre]` | | Muestra o cambia nick |
 | `/pass [password\|clear\|none]` | | Muestra o fija la contraseña guardada; `clear`/`none` la borran para la próxima conexión |
-| `/id [password]` | | Identifica con NickServ o servicio detectado |
+| `/id [password]` | | Identifica con NickServ o servicio configurado |
+| `/login servicio comando [argumentos]` | | Envía un comando de acceso al servicio y espera confirmación |
 | `/join canal\|#canal\|&canal` | `/j` | Entra en un canal sin prefijo o con `#` o `&` |
 | `/part [#canal\|&canal] [mensaje]` | `/p` | Sale del canal actual o del canal `#`/`&` indicado |
 | `/msg nick texto` | `/m` | Envía un mensaje privado |
@@ -393,6 +450,9 @@ Los comandos de activación sin argumento alternan su estado; también aceptan
 `/pass` solo actualiza la contraseña guardada para la próxima conexión; no
 envía un comando IRC `PASS` inmediato. Las formas numéricas `!0`..`!9` y
 `/0`..`/9` seleccionan directamente las ventanas numeradas.
+
+Consulta [Acceso a servicios](#acceso-a-servicios) para ver cómo `/login`
+aprende y repite un acceso.
 
 ---
 
@@ -437,9 +497,11 @@ Ajustes soportados:
 | `port` | Puerto decimal | El puerto IRC predeterminado es `6667` |
 | `pass` | Texto o vacío | Contraseña del servidor |
 | `nickpass` | Texto o vacío | Contraseña de NickServ para `/id` e identificación automática |
+| `authcmd` | Texto | Comando de `/login` confirmado, escrito por SpecTalkZX en texto plano; no lo añadas a mano |
 | `nickserv` | Nick o vacío | Nombre del servicio en redes no estándar |
 | `autoconnect` | `0`/`1` | Conectar al servidor guardado al arrancar |
 | `autojoin` | `0`/`1` | Entrar en `channels` tras el registro IRC |
+| `bookmark` | `0`, `1`–`5`, `128`–`133` | Selección de arranque guardada con **A**; tiene prioridad sobre el perfil actual |
 | `channels` | Canales separados por coma | Lista de canales para restaurar la sesión |
 | `theme` | `1`, `2`, `3` | Tema de color |
 | `timestamps` | `0`, `1`, `2` | Off, on, smart |
@@ -457,6 +519,8 @@ Ajustes soportados:
 | `ignores` | Nicks separados por coma | Hasta cinco nicks ignorados |
 
 Ajustes destacables:
+
+- `bookmark=1`–`5` selecciona el servidor guardado para arrancar; `129`–`133` añade autojoin. `128` desactiva ambos; ausente o `0` utiliza la configuración habitual. **BREAK** guarda la selección de **A**. Si falta el marcador elegido, no hay conexión automática. Los comandos explícitos `!autoconnect` o `!autojoin` vuelven al perfil actual.
 
 - `autoconnect=1` conecta al servidor guardado al arrancar.
 - `autojoin=1` reenvía `channels=` tras el registro IRC y la espera de NickServ, si hace falta.
@@ -483,6 +547,9 @@ nativo, con `/SYS/SPTBM1.CFG` a `SPTBM5.CFG` como alternativa si falta
   del reloj se realiza antes de abrir la conexión IRC.
 - La configuración y los marcadores se guardan en XFS. Si se corta la
   alimentación durante una escritura, el fichero puede quedar incompleto.
+- Al arrancar desde la web, SpecTalkZX descarga <code>SPECTALK.TAP</code>,
+  <code>SPECTALK.OVL</code> y <code>SPECTALK.DAT</code> una sola vez al inicio
+  y los mantiene abiertos durante toda la sesión.
 
 ---
 
@@ -499,6 +566,10 @@ make NO_COLOR=1
 # Spectrum Next nativo
 make next NO_COLOR=1
 
+# Spectranext y su recurso para arrancar desde la web en build/spectranext-direct/
+make spectranext NO_COLOR=1 SPXN_DIR=/ruta/a/Spectranext/driver
+make spectranext-direct NO_COLOR=1 SPXN_DIR=/ruta/a/Spectranext/driver
+
 # Compilaciones de publicación
 make release NO_COLOR=1
 make release NO_COLOR=1 PLATFORM=next
@@ -511,6 +582,8 @@ Salidas:
 - `build/SPECTALK.OVL`
 - `build/SPECTALK.DAT`
 - `build/SPECTALK.NEX` con `make next` (imagen autónoma para Next nativo)
+- `build/spectranext-direct/` con `make spectranext-direct` (`boot.zx`, TAP,
+  OVL, DAT y listado, listos para alojar por HTTPS)
 
 El objetivo Spectranext también necesita el directorio `driver` del SDK de
 Spectranext.
@@ -522,11 +595,13 @@ Spectranext.
 | Problema | Comprobar |
 |---|---|
 | El indicador Classic permanece rojo | Alimentación, cableado y 115200 baudios del puente ESP-AT |
+| El arranque Classic muestra `FAIL` una vez | Pulsa una tecla: el reintento activa el control de flujo CTS del ESP para la sesión |
 | No se detecta Spectranext | Cartucho presente y `/CFG` disponible en XFS local |
 | La red está lista pero IRC no conecta | Credenciales Wi-Fi, nombre del servidor y puerto IRC en texto plano |
 | El arranque se detiene en esxDOS/DAT | divMMC montado y los tres ficheros juntos de la misma compilación |
 | Fallan la ayuda, About o los marcadores | Falta `SPECTALK.OVL` o `SPECTALK.DAT`, o pertenece a otra compilación |
-| No empieza la instalación Spectranext | Selecciona **Load Resource URL** e introduce `https://ignaciomonge.github.io/SpecTalkZX/` |
+| Spectranext no arranca desde la web | Firmware `0.9-6fc153a3` o posterior, Wi-Fi conectado y **Load Resource URL** con `https://ignaciomonge.github.io/SpecTalkZX/` |
+| Spectranext debe arrancar sin la web | Instálalo desde `https://ignaciomonge.github.io/SpecTalkZX/install/` y luego inicia `SPCTX.ZX` |
 | El reloj sigue en `00:00` | Acceso SNTP y zona numérica; Classic y Next nativo también admiten `!tz rtc` |
 | Falla NickServ | Usa `/id`, `nickpass=` o un nombre de servicio alternativo en `nickserv=` |
 | Demasiados JOIN/PART | Alterna `!traffic` |
