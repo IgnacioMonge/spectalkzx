@@ -593,6 +593,23 @@ def config_load_roundtrip(symbols, memory, folder, directory, cpu):
     assert result[symbols["_nickserv_pass"]:symbols["_nickserv_pass"] + 64].split(b"\0", 1)[0] == b"AUTH LOGIN me secret"
     assert result[symbols["_nickserv_nick"]:symbols["_nickserv_nick"] + 32].split(b"\0", 1)[0] == b"Auth@services.test"
     abi(result)
+    # An empty nickpass= or authcmd= line keeps the other credential, in either order.
+    pass_field = slice(symbols["_nickserv_pass"], symbols["_nickserv_pass"] + 64)
+    for config, mode, payload in (("nickpass=legacy
+authcmd=
+", 0, b"legacy"),
+                                  ("authcmd=
+nickpass=legacy
+", 0, b"legacy"),
+                                  ("authcmd=AUTH x y
+nickpass=
+", AUTH_LEARNED, b"AUTH x y"),
+                                  ("nickpass=
+authcmd=AUTH x y
+", AUTH_LEARNED, b"AUTH x y")):
+        result = load_config_fixture(symbols, memory, folder, directory, cpu, config)
+        assert result[symbols["_auth_mode"]] == mode, config
+        assert result[pass_field].split(b" ", 1)[0] == payload, config
     print("Config load: real esxDOS read parses server/port/authcmd/nickserv on " + target_kind(symbols))
 
 

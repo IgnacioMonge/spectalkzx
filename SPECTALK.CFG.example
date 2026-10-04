@@ -10,7 +10,6 @@ pass=
 nickpass=
 nickserv=NickServ
 ; authcmd= is written by /login once the service confirms it (plaintext).
-; Do not add it by hand: an empty value replaces nickpass.
 
 autoconnect=0
 autojoin=0

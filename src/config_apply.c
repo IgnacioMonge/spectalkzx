@@ -170,8 +170,14 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
     cfg_vp = val;
     switch (cfg_key_id(key)) {
         case CFGK_NICK: cfg_s(irc_nick, IRC_NICK_SIZE); break;
-        case CFGK_NKPASS: cfg_s(nickserv_pass, IRC_PASS_SIZE); auth_mode = AUTH_LEGACY; break;
-        case CFGK_AUTHCMD: cfg_s(nickserv_pass, AUTH_COMMAND_SIZE); auth_mode = AUTH_LEARNED; break;
+        /* nickpass and authcmd share one buffer: an empty line must not erase
+           the other credential, whatever the line order. */
+        case CFGK_NKPASS:
+            if (*val) { cfg_s(nickserv_pass, IRC_PASS_SIZE); auth_mode = AUTH_LEGACY; }
+            break;
+        case CFGK_AUTHCMD:
+            if (*val) { cfg_s(nickserv_pass, AUTH_COMMAND_SIZE); auth_mode = AUTH_LEARNED; }
+            break;
         case CFGK_NCOLOR: cfg_b(&nick_color_mode); break;
         case CFGK_NICKSERV: cfg_s(nickserv_nick, AUTH_SERVICE_SIZE); break;
         case CFGK_SERVER: cfg_s(irc_server, IRC_SERVER_SIZE); break;

@@ -488,7 +488,7 @@ Supported settings:
 | `port` | Decimal port | Default IRC port is `6667` |
 | `pass` | Text or empty | Server password |
 | `nickpass` | Text or empty | NickServ password for `/id` / auto-identify |
-| `authcmd` | Text | Confirmed `/login` command, written by SpecTalkZX as plaintext; do not add it by hand |
+| `authcmd` | Text | Confirmed `/login` command, written by SpecTalkZX as plaintext; an empty value is ignored |
 | `nickserv` | Nick or empty | Service nick override, for non-standard networks |
 | `autoconnect` | `0`/`1` | Connect to saved server at startup |
 | `autojoin` | `0`/`1` | Join saved `channels` after IRC registration |

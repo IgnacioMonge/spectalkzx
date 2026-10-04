@@ -45,6 +45,8 @@ Only user-visible changes and compatibility notes are listed here.
 - `/msg` to a nick whose query window is open in the background no longer
   leaves the sent text, including service passwords, drawn in the input line.
 - `!config` no longer labels the autojoin setting as `autologin`.
+- An empty `nickpass=` or `authcmd=` line in the configuration file no longer
+  erases the other service login.
 - A failed configuration or bookmark save or delete keeps the previous file
   instead of leaving a damaged one.
 - The native Next clock follows the active video frame rate, so it keeps

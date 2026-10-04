@@ -497,7 +497,7 @@ Ajustes soportados:
 | `port` | Puerto decimal | El puerto IRC predeterminado es `6667` |
 | `pass` | Texto o vacío | Contraseña del servidor |
 | `nickpass` | Texto o vacío | Contraseña de NickServ para `/id` e identificación automática |
-| `authcmd` | Texto | Comando de `/login` confirmado, escrito por SpecTalkZX en texto plano; no lo añadas a mano |
+| `authcmd` | Texto | Comando de `/login` confirmado, escrito por SpecTalkZX en texto plano; un valor vacío se ignora |
 | `nickserv` | Nick o vacío | Nombre del servicio en redes no estándar |
 | `autoconnect` | `0`/`1` | Conectar al servidor guardado al arrancar |
 | `autojoin` | `0`/`1` | Entrar en `channels` tras el registro IRC |
