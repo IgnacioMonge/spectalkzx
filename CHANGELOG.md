@@ -59,18 +59,18 @@ Only user-visible changes and compatibility notes are listed here.
 
 ### Release verification
 
-- Classic: TAP **36,461 bytes**; BSS ends at **0xF479**, leaving **135 bytes**
+- Classic: TAP **36,471 bytes**; BSS ends at **0xF483**, leaving **125 bytes**
   before the receive ring; overlays **2045 / 1902 / 2007 / 2047 / 2008 / 1983 /
   2039 / 1980 bytes**; packed `SPECTALK.OVL` **16,075 bytes**.
-- Native Next: `SPECTALK.NEX` **410,112 bytes**; resident **36,228 bytes**; BSS
-  ends at **0xF3E9**, leaving **279 bytes**; overlays **2028 / 2429 / 2015 /
+- Native Next: `SPECTALK.NEX` **410,112 bytes**; resident **36,238 bytes**; BSS
+  ends at **0xF3F3**, leaving **269 bytes**; overlays **2028 / 2429 / 2015 /
   2047 / 2713 / 1996 / 2039 / 1957 bytes**; embedded data **16,829 bytes**.
 - Spectranext: TAP **35,405 bytes**; BSS ends at **0xF035**, leaving **1,227
-  bytes**; overlays **2042 / 1919 / 831 / 2523 / 3216 / 2114 / 2039 / 1994
-  bytes**; packed `SPECTALK.OVL` **16,998 bytes**.
+  bytes**; overlays **2042 / 1919 / 831 / 2523 / 3244 / 2114 / 2039 / 1994
+  bytes**; packed `SPECTALK.OVL` **17,026 bytes**.
 - Spectranext web resource: `SPECTALK.TAP` **42,361 bytes** with its loading
-  screen, `SPECTALK.OVL` **16,998 bytes**, `SPECTALK.DAT` **16,829 bytes**.
-  Installer: `SPCTX.INS` **3,313 bytes**, `SPCTX.PKG` **45,038 bytes**,
+  screen, `SPECTALK.OVL` **17,026 bytes**, `SPECTALK.DAT` **16,829 bytes**.
+  Installer: `SPCTX.INS` **3,313 bytes**, `SPCTX.PKG` **45,048 bytes**,
   `SPCTX.SCR` **6,912 bytes**.
 
 ### Compatibility
