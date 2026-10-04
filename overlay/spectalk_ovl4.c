@@ -17,7 +17,7 @@ extern uint8_t channels[];
 extern char    network_name[];
 extern uint8_t ping_latency;
 extern uint16_t uptime_minutes;
-extern void reset_rx_state(void);
+extern void overlay_rx_release(void);
 static const char ss_nick[]  = "Nick:";
 static const char ss_srv[]   = "Server:";
 static const char ss_net[]   = "Network:";
@@ -100,7 +100,7 @@ void status_render_ovl(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 /* ================================================================
@@ -117,8 +117,6 @@ extern void main_print(const char *s) __z88dk_fastcall;
 extern void set_attr_sys(void);
 extern void ui_err(const char *s) __z88dk_fastcall;
 
-static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
-static const char CK_NKS[]  = "nickserv=";
 static const char CK_TZLAST[] = "tzlast=";
 #define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
 #define CFG_TOO_LARGE (CFG_END + 1)
@@ -126,14 +124,9 @@ extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
 static void format_tz_tmp(char *tmp, int8_t tz)
 {
-    if (tz < 0) {
-        tmp[0] = '-';
-        fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
-        tmp[3] = 0;
-    } else {
-        fast_u8_to_str(tmp, (uint8_t)tz);
-        tmp[2] = 0;
-    }
+    if (tz < 0) { *tmp++ = '-'; tz = -tz; }
+    fast_u8_to_str(tmp, (uint8_t)tz);
+    tmp[2] = 0;
 }
 
 typedef struct {
@@ -145,7 +138,7 @@ void save_config_ovl(void)
 {
     char *p = (char *)overlay_slot;
     char tmp[4];
-    uint8_t i;
+    uint8_t i, saved;
 
     static const CfgItem flags[] = {
         { K_THEME, &current_theme },
@@ -161,20 +154,24 @@ void save_config_ovl(void)
         { K_COUNTSYNC, &count_sync_enabled }
     };
 
-    p = cfg_put(p, CK_HDR);
 
     if (irc_server[0])    p = cfg_kv(p, K_SERVER, irc_server);
     if (irc_port[0])      p = cfg_kv(p, K_PORT, irc_port);
     if (irc_nick[0])      p = cfg_kv(p, K_NICK, irc_nick);
     if (irc_pass[0])      p = cfg_kv(p, K_PASS, irc_pass);
-    if (nickserv_pass[0]) p = cfg_kv(p, K_NKPASS, nickserv_pass);
-    if (nickserv_nick[0]) p = cfg_kv(p, CK_NKS, nickserv_nick);
+    if (nickserv_pass[0]) p = cfg_kv(p, auth_mode >= AUTH_LEARNED ? K_AUTHCMD : K_NKPASS, nickserv_pass);
+    if (nickserv_nick[0]) p = cfg_kv(p, K_NICKSERV, nickserv_nick);
 
     /* W15: cfg_kv small-int trick — values 0-9 passed as (const char*)(uint16_t)N.
      * cfg_kv ASM detects D==0 && E<10 and writes single ASCII digit.
      * CONSTRAINT: all values below MUST be 0-9. */
     for (i = 0; i < 11; i++)
         p = cfg_kv(p, flags[i].k, (const char *)(uint16_t)*(flags[i].v));
+
+    if (bookmark_active_slot && !(bookmark_active_slot & BOOKMARK_INFERRED)) {
+        *u16_to_dec(tmp, bookmark_active_slot) = 0;
+        p = cfg_kv(p, K_BOOKMARK, tmp);
+    }
 
     if (autoaway_minutes) {
         fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = 0;
@@ -210,43 +207,21 @@ void save_config_ovl(void)
         goto done;
     }
 
-#ifdef SPECTALK_SPECTRANEXT
     esx_buf = (uint16_t)overlay_slot;
     esx_count = (uint16_t)(p - (char *)overlay_slot);
-    if (!esx_replace_write(K_CFG_PRI)) {
-        ui_err("Write error");
+    saved = esx_replace_write(K_CFG_PRI);
+#ifndef SPECTALK_SPECTRANEXT
+    if (saved == 2) saved = esx_replace_write(K_CFG_ALT);
+#endif
+    if (saved != 1) {
+        ui_err("Cannot write config");
         goto done;
     }
-#else
-    esx_fcreate(K_CFG_PRI);
-    if (!esx_handle) esx_fcreate(K_CFG_ALT);
-    if (!esx_handle) { ui_err("Cannot write config"); goto done; }
-
-    esx_buf = (uint16_t)overlay_slot;
-    esx_count = (uint16_t)(p - (char *)overlay_slot);
-    {
-        uint16_t expected = esx_count;
-        uint8_t write_ok;
-        esx_fwrite();
-        write_ok = (esx_result == expected);
-        esx_fclose();
-
-        if (!write_ok) {
-            ui_err("Write error");
-        } else {
-            if (overlay_mode != OVERLAY_BOOKMARKS) main_print("OK");
-            config_dirty = 0;
-        }
-    }
-#endif
-
-#ifdef SPECTALK_SPECTRANEXT
     if (overlay_mode != OVERLAY_BOOKMARKS) main_print("OK");
     config_dirty = 0;
-#endif
 
 done:
     input_cache_invalidate();
     /* overlay_slot aliases rx_line; cmd_save() owns the post-call discard gate. */
-    reset_rx_state();
+    overlay_rx_release();
 }

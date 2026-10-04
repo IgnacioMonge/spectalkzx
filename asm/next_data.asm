@@ -31,6 +31,15 @@ _dat_open:
     ld a, NEXT_DAT_FIRST_PAGE
     call next_dat_map
     ld hl, (0x0000)
+    ld de, 32767
+    or a
+    sbc hl, de
+    jr c, next_dat_size_ok
+    ld hl, 0
+    jr next_dat_size_store
+next_dat_size_ok:
+    add hl, de
+next_dat_size_store:
     ld (next_dat_size), hl
     jp next_dat_window_end
 

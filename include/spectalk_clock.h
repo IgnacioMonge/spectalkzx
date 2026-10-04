@@ -3,6 +3,11 @@
 
 #include <stdint.h>
 
+#ifdef SPECTALK_NEXT
+/* Actual video cadence, scaled by 64 to retain fractional frame rates. */
+uint16_t next_clock_second(void);
+#endif
+
 /* The application owns timezone/display/tick policy; the selected backend
  * owns only platform time acquisition and its transport pump. */
 #ifdef SPECTALK_SPECTRANEXT

@@ -30,11 +30,13 @@ EXPECTED = [
     ("CFGK_TZLAST", "K_TZLAST"),
     ("CFGK_DIVIDER", "K_DIVIDER"),
     ("CFGK_NOTIF", "K_NOTIF"),
+    ("CFGK_AUTHCMD", "K_AUTHCMD"),
+    ("CFGK_BOOKMARK", "K_BOOKMARK"),
 ]
 
 
 def main():
-    source = (ROOT / "src" / "spectalk.c").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "config_apply.c").read_text(encoding="utf-8")
     constants_source = (ROOT / "src" / "user_cmds.c").read_text(encoding="utf-8")
 
     enum_block = re.search(r"enum\s*\{([^}]*(?:CFGK_NICK)[^}]*)\};", source, re.S).group(1)
@@ -47,7 +49,7 @@ def main():
 
     constants = dict(re.findall(r'static const char (K_[A-Z]+)\[\]\s*=\s*"([^"]+)";', constants_source))
     keys = [constants[symbol] for _, symbol in EXPECTED]
-    assert len(keys) == 23 and len(set(keys)) == 23
+    assert len(keys) == len(EXPECTED) and len(set(keys)) == len(EXPECTED)
     assert all(key.endswith("=") for key in keys)
 
     def key_id(candidate):
@@ -56,9 +58,9 @@ def main():
         except ValueError:
             return 255
 
-    assert [key_id(key[:-1]) for key in keys] == list(range(23))
+    assert [key_id(key[:-1]) for key in keys] == list(range(len(EXPECTED)))
     for collision in ("nifty", "nickpassx", "server_backup", "portal",
-                      "autoconnected", "friends2", "ignores2", "tzx", "notify"):
+                      "autoconnected", "friends2", "ignores2", "tzx", "notify", "bookmarks"):
         assert key_id(collision) == 255
 
     print("Config key table check OK")

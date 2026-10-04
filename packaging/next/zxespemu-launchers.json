@@ -1,17 +1,17 @@
 {
   "schema": 2,
   "owner": "spectalkzx-next-port",
-  "version": "1.4.0-dev.386+ga8a4f92",
+  "version": "1.4.1-dev.earth48.delta+g636eba1.dirty",
   "launchers": [
     {
       "name": "SpecTalkZX Next Dev",
       "bundle_id": "org.spectalkzx.next",
       "arguments": [
         "--program", "artifact",
-        "--artifact", "../../build/test-artifacts/next/SPECTALK.NEX",
+        "--artifact", "../../build/next/SPECTALK.NEX",
         "--model", "next",
         "--require-uart",
-        "--storage", "../../build/test-artifacts/next",
+        "--storage", "../../build/next",
         "--writable-storage"
       ],
       "icon": "../../release/logo.png"

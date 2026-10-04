@@ -8,7 +8,7 @@
   "repository": {
     "path": "../..",
     "base": "main",
-    "branch": "main",
+    "branch": "fix/spectranext-resource-mount",
     "worktree": "SpecTalkZX dev"
   },
   "capabilities": {
@@ -23,6 +23,7 @@
     "preview": "../../build/installer-preview.png"
   },
   "allowed_changes": [
+    ".mex/ROUTER.md",
     "ARCHITECTURE.md",
     "CHANGELOG.md",
     "Makefile",

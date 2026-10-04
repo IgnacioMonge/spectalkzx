@@ -69,6 +69,14 @@ def init_contract() -> None:
     assert "S_INIT_NETWORK" not in user_source
     assert "S_NO_NETWORK" not in user_source
     assert "connection_state = STATE_DISCONNECTED;" in source
+    target_clock, classic_clock = target_and_classic(source, "clock_sync_fallback();")
+    assert "clock_sync_fallback();" in target_clock
+    assert "clock_init();" in classic_clock
+    assert source.index("connection_state == STATE_WIFI_OK") < source.index("clock_sync_fallback();")
+    assert "clock_synced = 0;" in disconnect
+    assert "config_load(" not in source  # Keep the loaded/current timezone and other settings.
+    retry = function_body(text("src/clock_spectranext.c"), "void clock_sync_fallback(void)")
+    assert retry.index("clock_retry_frames = 0;") < retry.index("clock_fetch();")
 
 
 def clock_contract() -> None:

@@ -6,8 +6,8 @@
 SECTION code_user
 
 EXTERN _frame_wait
-EXTERN _rb_push
-EXTERN _overlay_mode
+EXTERN _uart_tx_failed
+EXTERN _uart_tx_fail
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC uartRead
@@ -96,6 +96,10 @@ uartInit_flush:
 ; _ay_uart_send
 ; -----------------------------------------------------------------------------
 _ay_uart_send:
+    ld a, (_uart_tx_failed)
+    or a
+    scf
+    ret nz                  ; fail-stop until the transport is reinitialized
     ; L = byte to send (fastcall), preserved until out (c), l at end
     ld d, UART_TX_POLL_BUDGET ; budget: up to 192 busy samples
 
@@ -106,36 +110,15 @@ _ay_uart_send:
     
     inc b           ; OPTIMIZACIÓN
 
-    ; NOTE-M13: bounded by poll count, not wall time. RX-ready samples may drain
-    ; one byte through _rb_push, so elapsed time depends on traffic, clock, and
-    ; overlay mode. Exhaustion silently drops this byte and returns.
+    ; Bounded by poll count, not wall time. RX bytes are not read here: the
+    ; divTIESUS/ZX-Uno RTS line holds the ESP (CTS flow control) until a drain
+    ; has ring room. Exhaustion latches a failure; no later byte may be sent.
 uartSend_wait_tx:
     in a, (c)
-    add a, a                ; TX-busy bit -> Sign, RX-ready bit -> Carry
-    jp p, uartSend_tx_ready
-    dec d                   ; count down (preserves Carry from add a,a)
-    ret z                   ; timeout: drop byte, return to caller
-    jr nc, uartSend_wait_tx
-    ld a, (_overlay_mode)
-    or a
-    jr nz, uartSend_wait_tx
-
-    push hl                 ; preserve byte to send in L
-    push de                 ; preserve D timeout counter across _rb_push
-    dec b                   ; select UART DATA register through $FC3B
-    ld a, UART_DATA_REG
-    out (c), a
-    inc b
-    in a, (c)
-    ld l, a
-    call _rb_push
-    pop de                  ; restore D timeout counter
-    pop hl
-
-    ld bc, ZXUNO_ADDR       ; _rb_push clobbers BC; restore status port
-    ld a, UART_STAT_REG
-    out (c), a
-    inc b
+    and UART_BYTE_SENDING
+    jr z, uartSend_tx_ready
+    dec d
+    jp z, _uart_tx_fail
     jr uartSend_wait_tx
 
 uartSend_tx_ready:
@@ -146,4 +129,5 @@ uartSend_tx_ready:
 
     inc b
     out (c), l          ; OPT: direct from fastcall reg, no push/pop
+    or a                ; CF=0: transmitted
     ret

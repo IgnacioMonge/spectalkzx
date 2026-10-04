@@ -54,6 +54,8 @@ static const char K_TZLAST[]   = "tzlast=";
 static const char K_NOTIF[]    = "notif=";
 static const char K_COUNTSYNC[] = "countsync=";
 static const char K_NICKSERV[] = "nickserv=";
+static const char K_AUTHCMD[] = "authcmd=";
+static const char K_BOOKMARK[] = "bookmark=";
 static const char K_FRIENDS[]  = "friends=";
 static const char K_IGNORES[]  = "ignores=";
 
@@ -124,6 +126,7 @@ cap_params_start_key:
     __endasm;
 }
 
+#ifndef SPECTALK_SPECTRANEXT
 static uint8_t is_ban_numeric_at(char *p) __z88dk_fastcall ST_NAKED
 {
     (void)p;
@@ -149,6 +152,7 @@ is_ban_numeric_at_yes:
     ret
     __endasm;
 }
+#endif
 
 // Generic yes/no prompt with ~5s timeout. Returns 1 on y/Y, 0 on n/N or timeout.
 // Drains UART/parser between key polls to keep IRC state consistent during the wait.
@@ -215,6 +219,7 @@ uint8_t overlay_mode;
 uint8_t help_page;              // current page (0-based) — non-static for overlay access
 uint8_t config_dirty;           // 1 = unsaved config changes exist
 uint8_t bookmark_sel;
+// 0 = legacy CFG; bits 0..5 = slot, bit 6 = inferred UI, bit 7 = JOIN; 0x80 = OFF.
 uint8_t bookmark_active_slot;
 uint8_t bookmark_rows[5];
 
@@ -313,8 +318,13 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     } else {
         port = NULL;
     }
-    st_copy_n(irc_server, args, sizeof(irc_server));
     if (!port || !*port) port = S_DEFAULT_PORT;
+    auth_profile = 0;
+    if (st_stricmp(irc_server, args) || st_stricmp(irc_port, port)) {
+        auth_mode = AUTH_LEGACY;
+        nickserv_nick[0] = nickserv_pass[0] = 0;
+    }
+    st_copy_n(irc_server, args, sizeof(irc_server));
     if (strchr(irc_server, '"')) { ui_err("Bad server name"); return; }  // audit L04
 
     st_copy_n(irc_port, port, sizeof(irc_port));
@@ -366,6 +376,7 @@ do_connect:
 
     set_attr_priv(); main_print(S_OK);
 
+#ifndef SPECTALK_SPECTRANEXT
     result = net_start_stream();
     if (result == NET_STREAM_MODE_FAILED) {
         ui_err("CIPMODE FAIL");
@@ -382,6 +393,7 @@ do_connect:
         }
         ui_err("No '>' prompt"); goto connect_fail;
     }
+#endif
     
     connection_state = STATE_TCP_CONNECTED; closed_reported = 0;
     rx_pos = 0; rx_overflow = 0;
@@ -405,6 +417,7 @@ do_connect:
         rx_pos = 0;
         
         while (!loop_done) {
+            if (uart_tx_failed) { abort_msg = S_FAIL; goto join_fail; }
             net_frame_wait();
             if (in_inkey() == KEY_BREAK) {
                 abort_msg = "Aborted.";
@@ -420,7 +433,7 @@ do_connect:
                 line = rx_line;
                 if (line[0] == '@') {
                     line = strchr(line, ' ');
-                    if (line) line++; else { rx_pos = 0; continue; }
+                    if (line) line++; else { rx_pos = 0; goto registration_next; }
                 }
                 
                 // Buscar código numérico de forma eficiente
@@ -439,7 +452,7 @@ do_connect:
                             // OPT-P2-B: use shared helper
                             nick_try_alternate();
                             rx_pos = 0;
-                            continue;
+                            goto registration_next;
                         case 432: case 436: abort_msg = "Invalid nick"; abort_disc = 0; goto join_fail;
                         case 464: case 461: abort_msg = "Auth failed"; abort_disc = 1; goto join_fail;
                         case 465: case 466: abort_msg = "Banned"; abort_disc = 1; goto join_fail;
@@ -455,7 +468,7 @@ do_connect:
                         if (*ls == '*') { ls++; ls = skip_spaces(ls); }
                         if (ls[0] == 'L' && ls[1] == 'S') {
                             net_send_line(S_CAP_END);
-                            rx_pos = 0; continue;
+                            rx_pos = 0; goto registration_next;
                         }
                     }
                 }
@@ -468,7 +481,7 @@ do_connect:
                     if (params) {
                         params = skip_spaces(params);
                         net_send_string(S_PONG); net_send_line(params);
-                        rx_pos = 0; continue;
+                        rx_pos = 0; goto registration_next;
                     }
                 }
 
@@ -503,6 +516,7 @@ do_connect:
                     goto join_fail;
                 }
             }
+registration_next:
             // Absolute timeout (~60s) prevents infinite hang if server
             // keeps sending data (throttle NOTICEs) without completing registration
             if (++total_frames > 3000) {
@@ -564,14 +578,8 @@ static void overlay_exec_rx(uint8_t group, uint8_t entry)
 #define BOOKMARK_STORE_GROUP 2
 #define BOOKMARK_APPLY_ENTRY 1
 #define BOOKMARK_SAVE_ENTRY 2
+#define BOOKMARK_DELETE_ENTRY 3
 #endif
-
-static void bookmark_close_overlay(void)
-{
-    uint8_t discard = (rx_pos != 0) || rx_overflow;
-    overlay_exit_full();
-    if (discard) rx_overflow = 1;
-}
 
 #define bookmark_render() overlay_exec_rx(7, 0)
 #define bookmark_render_list() overlay_exec_rx(7, 2)
@@ -594,7 +602,7 @@ static void bookmark_load_current(void)
 
     if (!(bookmark_rows[bookmark_sel] & BOOKMARK_OCCUPIED)) return;
     if (was_connected) {
-        bookmark_close_overlay();
+        overlay_exit_full();
         if (!confirm_disconnect()) return;
     }
 
@@ -602,7 +610,7 @@ static void bookmark_load_current(void)
     overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_APPLY_ENTRY);
     if (overlay_slot[0] != 1) return;
 
-    if (!was_connected) bookmark_close_overlay();
+    if (!was_connected) overlay_exit_full();
     if (was_connected) {
         disconnect_with_feedback();
     }
@@ -618,23 +626,20 @@ static void bookmark_save_current(void)
 
     overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_SAVE_ENTRY);
     if (overlay_slot[0]) {
+        auth_profile = slot;
         bookmark_render_list();
-        if ((bookmark_active_slot & 0x7F) == slot) config_dirty = 1;
+        if ((bookmark_active_slot & BOOKMARK_SLOT_MASK) == slot) config_dirty = 1;
     }
 }
 
 static void bookmark_activate_current(void)
 {
     uint8_t slot = bookmark_sel + 1;
-    uint8_t active = bookmark_active_slot & 0x7F;
+    uint8_t active = bookmark_active_slot & BOOKMARK_SLOT_MASK;
     uint8_t prev_slot = active ? (uint8_t)(active - 1) : 0xFF;
 
     if (active == slot && (bookmark_active_slot & BOOKMARK_AUTOLOGIN)) {
-        bookmark_active_slot = 0;
-        autoconnect = 0;
-        autojoin = 0;
-        autojoin_channels[0] = 0;
-        search_pattern[0] = 0;
+        bookmark_active_slot = BOOKMARK_AUTOLOGIN;  // explicit OFF; preserve live session
         config_dirty = 1;
         bookmark_render_rows(0xFF);
         return;
@@ -644,6 +649,24 @@ static void bookmark_activate_current(void)
     overlay_exec_rx(BOOKMARK_STORE_GROUP, BOOKMARK_APPLY_ENTRY);
     if (overlay_slot[0] == 1) {
         bookmark_render_rows(prev_slot);
+    }
+}
+
+/* Called once before networking: apply the saved startup preference, never live. */
+static void bookmark_startup(void)
+{
+    uint8_t slot = bookmark_active_slot & BOOKMARK_SLOT_MASK;
+    if (!bookmark_active_slot || (bookmark_active_slot & BOOKMARK_INFERRED)) return;
+    autoconnect = autojoin = 0;
+    if (!slot) return;
+    bookmark_sel = slot - 1;
+    overlay_slot[0] = 0;
+    overlay_exec_rx(BOOKMARK_STORE_GROUP, BOOKMARK_APPLY_ENTRY);
+    if (overlay_slot[0]) {
+        autoconnect = 1;
+        autojoin = (bookmark_active_slot & BOOKMARK_AUTOLOGIN) ? 1 : 0;
+    } else {
+        bookmark_active_slot = BOOKMARK_AUTOLOGIN;
     }
 }
 
@@ -664,14 +687,22 @@ void bookmark_selector_key(uint8_t c) __z88dk_fastcall
     } else if ((c | 0x20) == 'a') {
         bookmark_activate_current();
     } else if ((c | 0x20) == 'd') {
-        uint8_t active = bookmark_active_slot & 0x7F;
+        uint8_t active = bookmark_active_slot & BOOKMARK_SLOT_MASK;
+#ifdef SPECTALK_SPECTRANEXT
         overlay_exec(7, 3);
+#else
+        overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_DELETE_ENTRY);
+#endif
         if (overlay_slot[0]) {
+            if (auth_profile == bookmark_sel + 1) auth_profile = 0;
             if (active == bookmark_sel + 1) config_dirty = 1;
+#ifndef SPECTALK_SPECTRANEXT
+            bookmark_render_list();
+#endif
         }
     } else if (c == KEY_BREAK) {
         if (config_dirty) bookmark_save_config();
-        bookmark_close_overlay();
+        overlay_exit_full();
     }
 }
 
@@ -722,7 +753,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
 
 static void cmd_str_ovl(const char *args, uint8_t entry) __z88dk_callee
 {
-    if (args && *args) st_copy_n((char *)overlay_slot, args, 64);
+    if (args && *args) st_copy_n((char *)overlay_slot, args, LINE_BUFFER_SIZE);
     else overlay_slot[0] = 0;
 
     overlay_exec_rx(6, entry);
@@ -829,10 +860,12 @@ static void cmd_msg(const char *args) __z88dk_fastcall
     if (!IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_query(target);
         if (idx > 0 && (uint8_t)idx != current_channel_idx) {
-            st_copy_n(line_buffer, msg, sizeof(line_buffer));
+            /* Banner reuses temp_input. Copy past the empty input's NUL so
+               switch_to_channel() redraws a blank prompt, not the message. */
+            char *copy = line_buffer + 1;
+            st_copy_n(copy, msg, sizeof(line_buffer) - 1);
             switch_to_channel((uint8_t)idx);
-            irc_send_privmsg(irc_channel, line_buffer);
-            line_buffer[0] = 0;
+            irc_send_privmsg(irc_channel, copy);
             return;
         }
     }
@@ -843,32 +876,15 @@ static void cmd_msg(const char *args) __z88dk_fastcall
 static void cmd_reply(const char *args) __z88dk_fastcall
 {
     if (!check_status(LVL_IRC)) return;
-    if (!last_pm_nick[0]) { ui_err("No recent PM"); return; }
-    if (!ensure_args(args, "reply message")) return;
-
-    irc_send_privmsg(last_pm_nick, args);
+    st_copy_n((char *)overlay_slot, args ? args : "", LINE_BUFFER_SIZE);
+    overlay_exec_rx(6, 6);
 }
 
 static void cmd_notice(const char *args) __z88dk_fastcall
 {
-    char *p = (char *)args;
-    char *target;
-    char *msg;
-
     if (!check_status(LVL_IRC)) return;
-    if (!ensure_args(p, S_USAGE_NOTICE)) return;
-
-    target = p;
-    msg = split_at_space(p);
-    if (!msg) { ui_usage(S_USAGE_NOTICE); return; }
-
-    autoaway_counter = 0;
-    if (autoaway_active) {
-        net_send_line(S_AWAY_CMD);
-        autoaway_active = 0;
-    }
-
-    irc_send_cmd2("NOTICE", target, msg);
+    st_copy_n((char *)overlay_slot, args ? args : "", LINE_BUFFER_SIZE);
+    overlay_exec_rx(5, 2);
 }
 
 static void cmd_query(const char *args) __z88dk_fastcall
@@ -962,47 +978,21 @@ static void cmd_me(const char *args) __z88dk_fastcall
 static void cmd_away(const char *args) __z88dk_fastcall
 {
     if (!check_status(LVL_IRC)) return;
-
-    // Enviar AWAY (sin texto si args vacío/NULL; con :texto si args tiene contenido)
-    irc_send_cmd2(S_AWAY_CMD, NULL, args);
-
-    // Guardar mensaje de away para auto-reply
-    if (args && *args) {
-        st_copy_n(away_message, args, sizeof(away_message));
-        irc_is_away = 1;
-    } else {
-        away_message[0] = '\0';
-        irc_is_away = 0;
-        autoaway_counter = 0;
-    }
-    
-    // En cualquier caso (manual o quitar), desactivamos el flag de auto-away
-    autoaway_active = 0;
-
-    draw_status_bar();
+    st_copy_n((char *)overlay_slot, args ? args : "", LINE_BUFFER_SIZE);
+    overlay_exec_rx(5, 3);
 }
 
-// /id [password] - Identificarse con NickServ
-// Si no se da password, usa el de la configuración (pass=...)
+// Cold authentication commands own a stable copy of the input.
 static void cmd_id(const char *args) __z88dk_fastcall
 {
-    const char *pass;
-    
+    if (check_status(LVL_IRC)) cmd_str_ovl(args, 5);
+}
+
+static void cmd_login(const char *args) __z88dk_fastcall
+{
     if (!check_status(LVL_IRC)) return;
-    
-    // Usar password del argumento, o el de config si no hay
-    if (args && *args) {
-        pass = args;
-        st_copy_n(nickserv_pass, args, IRC_PASS_SIZE);
-    } else if (nickserv_pass[0]) {
-        pass = nickserv_pass;
-    } else {
-        ui_err("No password. Use /id <pass> or set nickpass= in config");
-        return;
-    }
-    
-    send_identify(pass);
-    notify2("Identifying with ", nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV, ATTR_MSG_SYS);
+    st_copy_n((char *)overlay_slot, args ? args : "", LINE_BUFFER_SIZE);
+    overlay_exec_rx(0, 4);
 }
 
 static void cmd_raw(const char *args) __z88dk_fastcall
@@ -1298,7 +1288,11 @@ static void sys_init(const char *args) __z88dk_fastcall
     } else if (connection_state == STATE_WIFI_OK) {
         set_attr_priv();
         main_print("WiFi connected");
+#ifdef SPECTALK_SPECTRANEXT
+        clock_sync_fallback();  // Explicit retry bypasses the idle SNTP backoff.
+#else
         clock_init();  // Sync clock after successful reinit
+#endif
     } else {
         ui_err("no WiFi");
     }
@@ -1330,7 +1324,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     apply_theme();
 
     search_pattern[0] = 1;
-    overlay_call(3);
+    overlay_exec(0, 3);
     if (had_partial) rx_overflow = 1;
     config_dirty = 1;
     return;
@@ -1468,10 +1462,29 @@ void cmd_save(const char *args) __z88dk_fastcall
 {
     uint8_t discard = (rx_pos != 0) || rx_overflow;
     (void)args;
-    if (overlay_mode != OVERLAY_BOOKMARKS) snapshot_autojoin_channels();
+    if (auth_mode == AUTH_PENDING) { ui_err("Login pending"); return; }
+    if (auth_mode == AUTH_SAVE) st_copy_n(search_pattern, autojoin_channels, SEARCH_PATTERN_SIZE);
+    else if (overlay_mode != OVERLAY_BOOKMARKS) snapshot_autojoin_channels();
+    if (auth_mode >= AUTH_LEARNED) {
+        uint8_t selected = bookmark_sel;
+        auth_mode = AUTH_LEARNED;
+        if (auth_profile) {
+            bookmark_sel = auth_profile - 1;
+            overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_SAVE_ENTRY);
+            bookmark_sel = selected;
+            if (!overlay_slot[0]) goto done;
+        }
+    }
     overlay_exec(3, 1);
+done:
     net_pump_rx();
     if (discard || rb_head != rb_tail) rx_overflow = 1;
+}
+
+static void auth_save_poll(void)
+{
+    if (auth_mode == AUTH_SAVE && !overlay_mode && !deferred_wrap_active &&
+        !(autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)) cmd_save(0);
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main
@@ -1539,7 +1552,7 @@ static const char cmd_pool[] =
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
     "changelog\0click\0mode\0reply\0notice\0autojoin\0divider\0countsync\0cs\0"
-    "bookmarks\0bm\0"
+    "bookmarks\0bm\0login\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1572,6 +1585,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  12, 255, cmd_nick },
     {  13, 255, cmd_pass },
     {  14, 255, cmd_id },
+    {  70, 255, cmd_login },
     {  15,  16, cmd_join },
     {  17,  18, cmd_part },
     {  19,  20, cmd_msg },

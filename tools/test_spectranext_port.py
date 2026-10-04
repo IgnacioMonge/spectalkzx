@@ -41,7 +41,7 @@ def network() -> None:
         'const char S_APPDESC[] = "IRC Client for ZX Spectrum";',
         "#endif",
     )
-    assert 'db "SPECTALKZX 1.4.0: IRC CLIENT FOR SPECTRANEXT",0' in text(
+    assert 'db "SPECTALKZX 1.4.1: IRC CLIENT FOR SPECTRANEXT",0' in text(
         "overlay/earth_about_render.asm"
     )
     assert "AT+" not in source and "uart_" not in source.lower()
@@ -74,7 +74,8 @@ def storage() -> None:
     assert not (ROOT / "src/storage_spectranext.c").exists()
     assert '#include "storage_spectranext.c"' not in text("src/main_build.c")
     assert 'defm "/CFG", 0' in policy
-    ordered(policy, "call _spxn_rom_detect", "call _esx_opendir",
+    ordered(policy, "call _spxn_rom_detect", "call _spxn_xfs_open_keep",
+            "call _spxn_xfs_open_keep", "call _esx_opendir",
             "call _esx_mkdir", "call _esx_opendir", "call _esx_fclose")
     transaction = text("overlay/xfs_write_ovl.asm")
     ordered(transaction, "call _esx_freplace", "ld (xfs_write_created), a",
@@ -89,7 +90,7 @@ def configuration() -> None:
     assert '"/SYS/CONFIG/SPECTALK.CFG"' in paths
     save = text("overlay/spectalk_ovl4.c")
     assert "esx_replace_write(K_CFG_PRI)" in save
-    ordered(save, "#else", "esx_fcreate(K_CFG_PRI)", "esx_fwrite();", "esx_fclose();")
+    assert "if (saved == 2) saved = esx_replace_write(K_CFG_ALT)" in save
 
     bookmark_store = text("overlay/bookmark_store_ovl.c")
     bookmarks = text("overlay/bookmarks_ovl.c")

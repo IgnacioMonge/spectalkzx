@@ -106,6 +106,7 @@ _main_puts2:
     push de
     call _main_puts
     pop hl
+    ret nz                  ; do not print the second string after cancellation
     jp _main_puts   ; tail call
 
 ; OPT: main_puts3 eliminated (no longer called from C)
@@ -139,22 +140,11 @@ DEFC _net_send_crlf = _uart_send_crlf
 DEFC _net_pump_rx = _uart_drain_to_buffer
 DEFC _net_frame_wait = _frame_wait_drain
 ELSE
-; Compatibility symbols referenced by dormant Classic helpers in the shared
-; assembly root. They contain no UART I/O in this target.
-PUBLIC _ay_uart_send
-PUBLIC _ay_uart_init
-PUBLIC uartRead
 EXTERN _net_send_byte
 EXTERN _net_send_string
 EXTERN _net_send_crlf
 EXTERN _net_pump_rx
 EXTERN _net_frame_wait
-DEFC _ay_uart_send = _net_send_byte
-_ay_uart_init:
-    ret
-uartRead:
-    or a
-    ret
 ENDIF
 
 ; void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2)
@@ -209,11 +199,8 @@ isci_check_p2:
     ld a, h
     or l
     jr z, isci_crlf
-    ld a, (hl)
-    or a
-    jr z, isci_crlf
-    
-    ; Send " :" + p2
+
+    ; Send " :" + p2. NULL omits p2; non-NULL empty emits an empty trailing param.
     push hl
     ld hl, _S_SP_COLON
     call _net_send_string
@@ -274,11 +261,12 @@ ap_have_byte:
     cp 10
     jr z, ap_line
 
-    ; Store byte if rx_pos <= ABOUT_PUMP_LINE_MAX, otherwise discard until LF.
+    ; Store byte if rx_pos < ABOUT_PUMP_LINE_MAX, otherwise discard until LF.
     ld hl, _rx_line + ABOUT_PUMP_LINE_MAX
     or a
     sbc hl, de                ; max write pointer - current write pointer
     jr c, ap_overflow
+    jr z, ap_overflow
 
     ld (de), a
     inc de
@@ -391,6 +379,8 @@ PUBLIC _esx_fclose
 PUBLIC _esx_fcreate
 PUBLIC _esx_fwrite
 PUBLIC _esx_fseek_set
+PUBLIC _esx_funlink
+PUBLIC _esx_frename
 
 ; Globals for parameter passing (set from C before calling)
 PUBLIC _esx_handle
@@ -469,8 +459,9 @@ ENDIF
     jr esx_io_epilogue
 
 ; -----------------------------------------------------------------------------
-; void esx_fclose(void)
+; uint8_t esx_fclose(void)
 ; Input:  _esx_handle = file handle
+; Output: L = 0 on success, 1 on error.
 ; Preserves IY and IX.
 ; -----------------------------------------------------------------------------
 _esx_fclose:
@@ -487,7 +478,12 @@ IFDEF SPECTALK_NEXT
     call _next_overlay_restore
     pop af
 ENDIF
-    jr esx_pop_ix_iy_ret
+    pop ix
+    pop iy
+    ld hl, 0
+    ret nc
+    inc l
+    ret
 
 ; esx_fcreate: now merged with esx_fopen above (esx_open_common)
 
@@ -554,6 +550,59 @@ esx_pop_ix_iy_ret:
     pop iy
     ret
 
+; -----------------------------------------------------------------------------
+; void esx_funlink(const char *path) __z88dk_fastcall
+; Output: _esx_result = 1 on success, 0 on error.
+; -----------------------------------------------------------------------------
+_esx_funlink:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
+    push iy
+    push ix
+    push hl
+    pop ix
+    ld a, '*'
+    rst 8
+    defb 0xAD           ; F_UNLINK
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
+    ld hl, 0
+    jr c, esx_unlink_store
+    inc l
+esx_unlink_store:
+    ld (_esx_result), hl
+    pop ix
+    pop iy
+    ret
+
+; HL=old path, DE=new path. Returns L=1 on success, 0 on error.
+_esx_frename:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
+    push iy
+    push ix
+    push hl
+    pop ix
+    ld a, '*'
+    rst 8
+    defb 0xB0           ; F_RENAME
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
+    pop ix
+    pop iy
+    ld hl, 0
+    ret c
+    inc l
+    ret
+
 IFDEF SPECTALK_NEXT
 ;; Overlay-safe direct NextZXOS RTC calls. The resident return point survives
 ;; low-memory automapping and restores the executing MMU1 overlay before RET.
@@ -593,7 +642,91 @@ EXTERN _esx_opendir
 EXTERN _esx_mkdir
 EXTERN _esx_handle
 EXTERN _spxn_xfs_fseek
+EXTERN _spxn_xfs_open_keep
+EXTERN _spxn_xfs_use_keep
+EXTERN _spxn_xfs_release_keep
+EXTERN _spxn_xfs_close_active
+EXTERN _K_DAT
+PUBLIC _dat_open
+PUBLIC _ovl_open
+PUBLIC _resources_release
+PUBLIC _dat_keep
+PUBLIC _ovl_keep
 DEFC _esx_fseek_set = _spxn_xfs_fseek
+
+SECTION bss_user
+_dat_keep: defs 1
+_ovl_keep: defs 1
+resources_release_failed: defs 1
+SECTION code_user
+
+storage_ovl_path:
+    defm "SPECTALK.OVL", 0
+
+; Immutable resources are opened once on the inherited source mount, before
+; directory operations select local slot 0. Logical opens only bind and rewind.
+_dat_open:
+    ld a, (_dat_keep)
+    jr storage_resource_open
+_ovl_open:
+    ld a, (_ovl_keep)
+storage_resource_open:
+    ld l, a
+    call _spxn_xfs_use_keep
+    ld a, l
+    or a
+    jr z, storage_resource_fail
+    ld hl, 0
+    call _esx_fseek_set
+    ld a, l
+    or a
+    ret nz
+    call _esx_fclose
+storage_resource_fail:
+    xor a
+    ld (_esx_handle), a
+    ret
+
+_resources_release:
+    xor a
+    ld (resources_release_failed), a
+    ; Public handle zero can still hide a failed CLOSE; the adapter owns it.
+    call _spxn_xfs_close_active
+    call storage_release_status
+    ld a, (_dat_keep)
+    or a
+    jr z, storage_release_ovl
+    ld l, a
+    call _spxn_xfs_release_keep
+    call storage_release_status
+    jr nz, storage_release_ovl
+    xor a
+    ld (_dat_keep), a
+storage_release_ovl:
+    ld a, (_ovl_keep)
+    or a
+    jr z, storage_release_done
+    ld l, a
+    call _spxn_xfs_release_keep
+    call storage_release_status
+    jr nz, storage_release_done
+    xor a
+    ld (_ovl_keep), a
+storage_release_done:
+    ld a, (resources_release_failed)
+    ld l, a
+    ret
+storage_release_status:
+    ld a, l
+    or a
+    ret z
+    ld a, 0xFF
+    ld (resources_release_failed), a
+    or a
+    ret
+
+resources_close_error:
+    defm "RESOURCE CLOSE FAILED", 0
 
 storage_cfg_dir:
     defm "/CFG", 0
@@ -605,6 +738,18 @@ _esx_detect:
     ld a, h
     or l
     jr nz, storage_false
+    ld hl, _K_DAT
+    call _spxn_xfs_open_keep
+    ld a, l
+    ld (_dat_keep), a
+    or a
+    jr z, storage_dat_failed
+    ld hl, storage_ovl_path
+    call _spxn_xfs_open_keep
+    ld a, l
+    ld (_ovl_keep), a
+    or a
+    jr z, storage_ovl_failed
     ld hl, storage_cfg_dir
     call _esx_opendir
     ld a, (_esx_handle)
@@ -625,8 +770,21 @@ storage_detect_close:
     ld l, 1
     ret
 storage_false:
+    call _resources_release
     ld l, 0
     ret
+
+
+storage_dat_failed:
+    ld hl, storage_dat_error
+    jp _fatal_msg
+storage_ovl_failed:
+    ld hl, storage_ovl_error
+    jp _fatal_msg
+storage_dat_error:
+    defm "DAT OPEN FAILED", 0
+storage_ovl_error:
+    defm "OVL OPEN FAILED", 0
 
 ENDIF
 

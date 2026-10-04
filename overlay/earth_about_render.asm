@@ -7,6 +7,7 @@ SECTION code_user
 PUBLIC _earth_draw_frame
 PUBLIC _earth_apply_frame_delta
 PUBLIC _earth_apply_attr_delta
+PUBLIC earth_apply_delta
 PUBLIC _earth_validate_frame_delta
 PUBLIC _earth_validate_attr_delta
 PUBLIC _earth_read_logo
@@ -25,7 +26,11 @@ EXTERN _dat_fseek_set
 DEFC DATA_FREAD = _dat_fread
 DEFC DATA_FSEEK = _dat_fseek_set
 ELSE
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _dat_open
+ELSE
 EXTERN _esx_fopen
+ENDIF
 EXTERN _esx_fread
 EXTERN _esx_fclose
 EXTERN _esx_fseek_set
@@ -33,7 +38,7 @@ DEFC DATA_FREAD = _esx_fread
 DEFC DATA_FSEEK = _esx_fseek_set
 ENDIF
 EXTERN _esx_handle
-EXTERN _reset_rx_state
+EXTERN _overlay_rx_release
 EXTERN _esx_buf
 EXTERN _esx_count
 EXTERN _esx_result
@@ -50,6 +55,10 @@ EXTERN _rx_last_len
 EXTERN _earth_ready
 EXTERN _frame_idx
 EXTERN _input_cache_invalidate
+IFDEF SPECTALK_NEXT
+EXTERN next_earth_open
+EXTERN next_earth_close
+ENDIF
 
 DEFC EARTH_FRAME0_OFFSET = 595
 DEFC EARTH_FRAME0_SIZE = 587
@@ -67,6 +76,9 @@ DEFC TA_MSG_TOPIC = 13
 
 _about_close_ovl:
         di                      ; esxDOS RST 8 must stay outside timed EI windows
+IFDEF SPECTALK_NEXT
+        call next_earth_close
+ENDIF
 IFNDEF SPECTALK_NEXT
         ld a,(_esx_handle)
         or a
@@ -410,15 +422,16 @@ _about_render_ovl:
         call _clear_zone
         call _earth_draw_separator
 
-IFDEF SPECTALK_NEXT
+IFNDEF SPECTALK_NEXT
+IFDEF SPECTALK_SPECTRANEXT
         call _dat_open
 ELSE
         ld hl,_K_DAT
         call _esx_fopen
+ENDIF
         ld a,(_esx_handle)
         or a
         jp z,about_fail
-ENDIF
 
         ld hl,EARTH_FRAME0_OFFSET
         call DATA_FSEEK
@@ -442,7 +455,12 @@ ENDIF
         ld a,l
         or a
         jr z,about_fail
+ENDIF
 
+IFDEF SPECTALK_NEXT
+        call next_earth_open
+        ld a,1
+ELSE
         ld hl,EARTH_DELTA_OFFSET
         call DATA_FSEEK
         ld a,l
@@ -452,6 +470,7 @@ ENDIF
         xor a
         ld (_frame_idx),a
         inc a
+ENDIF
         ld (_earth_ready),a
 
         ld a,(_current_theme)
@@ -500,7 +519,7 @@ about_draw_foot:
 about_reset_rx:
         ld hl,0
         ld (_rx_last_len),hl
-        jp _reset_rx_state
+        jp _overlay_rx_release
 
 about_read_exact:
 IFDEF SPECTALK_SPECTRANEXT
@@ -758,12 +777,12 @@ earth_attr_base:
 
 about_s_line1:
 IFDEF SPECTALK_NEXT
-        db "SPECTALKZX 1.4.0: IRC CLIENT FOR ZX SPECTRUM NEXT",0
+        db "SPECTALKZX 1.4.1: IRC CLIENT FOR ZX SPECTRUM NEXT",0
 ELSE
 IFDEF SPECTALK_SPECTRANEXT
-        db "SPECTALKZX 1.4.0: IRC CLIENT FOR SPECTRANEXT",0
+        db "SPECTALKZX 1.4.1: IRC CLIENT FOR SPECTRANEXT",0
 ELSE
-        db "SPECTALKZX 1.4.0: IRC CLIENT FOR ZX SPECTRUM",0
+        db "SPECTALKZX 1.4.1: IRC CLIENT FOR ZX SPECTRUM",0
 ENDIF
 ENDIF
 about_s_line2:

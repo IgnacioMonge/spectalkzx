@@ -60,7 +60,7 @@ void ignore_cmd_ovl(void)
     }
 
 done:
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void pass_cmd_ovl(void)
@@ -85,20 +85,21 @@ void pass_cmd_ovl(void)
     config_dirty = 1;
 
 done:
-    reset_rx_state();
+    overlay_rx_release();
 }
 
-static void set_or_toggle_flag_ovl(uint8_t *flag, const char *label, const char *args) __z88dk_callee
+static uint8_t set_or_toggle_flag_ovl(uint8_t *flag, const char *label, const char *args) __z88dk_callee
 {
     if (*args) {
         if (args[0] == '1' || st_stricmp(args, "on") == 0) *flag = 1;
         else if (args[0] == '0' || st_stricmp(args, "off") == 0) *flag = 0;
-        else { ui_usage("on|off"); return; }
+        else { ui_usage("on|off"); return 0; }
     } else {
         *flag = !*flag;
     }
     sys_puts_print(label, *flag ? SB_ON : SB_OFF);
     config_dirty = 1;
+    return 1;
 }
 
 typedef struct {
@@ -141,18 +142,15 @@ void local_setting_cmd_ovl(void)
                        show_timestamps == 1 ? SB_ON : SB_SMART);
         config_dirty = 1;
     } else if (id <= 9 && flags[id].ptr) {
-        set_or_toggle_flag_ovl(flags[id].ptr, flags[id].label, args);
+        if (!set_or_toggle_flag_ovl(flags[id].ptr, flags[id].label, args)) goto done;
+        if ((uint8_t)(id - 6) < 2) bookmark_active_slot = 0;
         if (id == 6 && !autoconnect) {
             autojoin = 0;
-            bookmark_active_slot = 0;
             autojoin_channels[0] = 0;
             search_pattern[0] = 0;
         } else if (id == 7) {
             if (autojoin) {
                 autoconnect = 1;
-                if (bookmark_active_slot) bookmark_active_slot |= 0x80;
-            } else {
-                bookmark_active_slot &= 0x7F;
             }
         } else if (id == 8 && !show_channel_separators) {
             channel_context_next_row = 0;
@@ -164,7 +162,7 @@ void local_setting_cmd_ovl(void)
     }
 
 done:
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void autoaway_cmd_ovl(void)
@@ -211,7 +209,7 @@ void autoaway_cmd_ovl(void)
     config_dirty = 1;
 
 done:
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void friend_cmd_ovl(void)
@@ -260,5 +258,31 @@ void friend_cmd_ovl(void)
     ui_err("Max 5 friends");
 
 done:
-    reset_rx_state();
+    overlay_rx_release();
+}
+
+/* /id remains the legacy IDENTIFY shortcut; /login teaches a complete payload. */
+void id_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+    const char *pass = *args ? args : nickserv_pass;
+    if (*args) {
+        st_copy_n(nickserv_pass, args, IRC_PASS_SIZE);
+        auth_mode = AUTH_LEGACY;
+    }
+    if (!nickserv_pass[0] || auth_mode == AUTH_PENDING) {
+        ui_err("No confirmed password");
+    } else {
+        send_identify(pass);
+        notify2("Identifying with ", nickserv_nick[0] ? (const char *)nickserv_nick : "NickServ", ATTR_MSG_SYS);
+    }
+    overlay_rx_release();
+}
+
+void reply_cmd_ovl(void)
+{
+    if (!last_pm_nick[0]) ui_err("No recent PM");
+    else if (!overlay_slot[0]) ui_usage("reply message");
+    else irc_send_privmsg(last_pm_nick, (const char *)overlay_slot);
+    overlay_rx_release();
 }

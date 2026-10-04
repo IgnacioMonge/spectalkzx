@@ -43,7 +43,7 @@ uint8_t net_init(void);
 void net_prepare(uint8_t secure) __z88dk_fastcall;
 uint8_t net_connect(const char *host, const char *port,
                     uint8_t secure) __z88dk_callee;
-uint8_t net_start_stream(void);
+#define net_start_stream() NET_STREAM_OK
 void net_close(void);
 void spectranext_about_pump(void);
 

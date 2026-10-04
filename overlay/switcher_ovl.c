@@ -128,3 +128,30 @@ void switcher_render_ovl(void)
 
     sw_dirty = 0;
 }
+
+void notice_cmd_ovl(void)
+{
+    char *target = (char *)overlay_slot;
+    char *msg = split_at_space(target);
+    if (!msg) { ui_usage("notice nick message"); goto done; }
+    autoaway_counter = 0;
+    if (autoaway_active) {
+        irc_send_cmd2(S_AWAY_CMD, 0, 0);
+        autoaway_active = 0;
+    }
+    irc_send_cmd2("NOTICE", target, msg);
+done:
+    overlay_rx_release();
+}
+
+void away_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+    irc_send_cmd2(S_AWAY_CMD, 0, *args ? args : 0);
+    st_copy_n(away_message, args, 32);
+    irc_is_away = (*args != 0);
+    if (!*args) autoaway_counter = 0;
+    autoaway_active = 0;
+    draw_status_bar();
+    overlay_rx_release();
+}

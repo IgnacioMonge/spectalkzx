@@ -23,7 +23,6 @@ NEXT_OVERLAY_COUNT      EQU 8
 OVL_CODE_BASE           EQU 0x2000
 OVL_CODE_END            EQU 0x4000
 OVL_CODE_SIZE_ADDR      EQU OVL_CODE_END - 2
-OVL_CODE_LIMIT_NEG      EQU 0x10000 - OVL_CODE_SIZE_ADDR
 
 SECTION bss_user
 
@@ -135,27 +134,52 @@ next_overlay_end_di:
 next_overlay_entry:
     ld a, l
     ld hl, OVL_CODE_BASE
-    cp (hl)
+    ld c, (hl)
+    cp c
     jr nc, next_overlay_entry_bad
-    add a, a
-    jr c, next_overlay_entry_bad
+    ld b, a
+    inc hl
+    ld a, (hl)
+    or a
+    jr nz, next_overlay_entry_bad
+    ld a, b
+    ld e, c
+    ld d, 0
+    sla e
+    rl d
+    inc de
+    inc de                   ; DE = complete entry-table length
+    ld hl, (OVL_CODE_SIZE_ADDR)
+    ld bc, OVL_CODE_SIZE_ADDR - OVL_CODE_BASE + 1
+    or a
+    sbc hl, bc
+    jr nc, next_overlay_entry_bad ; stored length exceeds 8190
+    ld hl, (OVL_CODE_SIZE_ADDR)
+    or a
+    sbc hl, de
+    jr c, next_overlay_entry_bad  ; truncated entry table
+    push de
     ld e, a
     ld d, 0
+    sla e
+    rl d
     ld hl, OVL_CODE_BASE + 2
     add hl, de
     ld e, (hl)
     inc hl
     ld d, (hl)
+    pop bc
 
     push de
-    ld hl, OVL_CODE_LIMIT_NEG
-    add hl, de
-    jr c, next_overlay_entry_pop_bad
     ex de, hl
     ld de, OVL_CODE_BASE
     or a
     sbc hl, de
     jr c, next_overlay_entry_pop_bad
+    or a
+    sbc hl, bc
+    jr c, next_overlay_entry_pop_bad
+    add hl, bc
     ld de, (OVL_CODE_SIZE_ADDR)
     or a
     sbc hl, de

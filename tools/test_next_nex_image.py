@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from next_earth import FIRST_BANK as EARTH_FIRST_BANK, STARFIELD_BANK, pack_earth
+
 from gen_next_nex import (
     ABOUT_OVERLAY_INDEX,
     ABOUT_PACKET_OFFSET,
@@ -14,7 +16,7 @@ from gen_next_nex import (
     HEADER_SIZE,
     MAIN_BASE,
     MAIN_BANKS,
-    OVERLAY_COUNT,
+    OVERLAY_BASE,
     OVERLAY_FIRST_BANK,
     OVERLAY_SIZE_OFFSET,
     PAGE_SIZE,
@@ -25,12 +27,15 @@ from gen_next_nex import (
 
 def entry_is_valid(page: bytes, entry_id: int) -> bool:
     """Mirror next_overlay_entry() for a deterministic padding-bound test."""
-    if entry_id >= page[0]:
+    count = page[0]
+    size = int.from_bytes(page[OVERLAY_SIZE_OFFSET : PAGE_SIZE], "little")
+    table_end = 2 + 2 * count
+    if (size > OVERLAY_SIZE_OFFSET or table_end > size
+            or not 0 <= entry_id < count or page[1]):
         return False
     item = 2 + 2 * entry_id
     target = int.from_bytes(page[item : item + 2], "little")
-    size = int.from_bytes(page[OVERLAY_SIZE_OFFSET : PAGE_SIZE], "little")
-    return 0x2000 <= target < 0x2000 + size and target < 0x2000 + OVERLAY_SIZE_OFFSET
+    return OVERLAY_BASE + table_end <= target < OVERLAY_BASE + size
 
 
 def main() -> None:
@@ -58,9 +63,13 @@ def main() -> None:
     dat = args.dat.read_bytes()
     stored_source = len(dat).to_bytes(2, "little") + dat
     dat_bank_count = (len(stored_source) + BANK_SIZE - 1) // BANK_SIZE
+    earth = pack_earth()
+    earth_bank_ids = list(range(EARTH_FIRST_BANK, EARTH_FIRST_BANK + len(earth) // BANK_SIZE))
     bank_ids = ([bank for bank, _ in MAIN_BANKS]
                 + list(range(OVERLAY_FIRST_BANK, OVERLAY_FIRST_BANK + 4))
-                + list(range(DAT_FIRST_BANK, DAT_FIRST_BANK + dat_bank_count)))
+                + list(range(DAT_FIRST_BANK, DAT_FIRST_BANK + dat_bank_count))
+                + earth_bank_ids)
+    assert len(set(bank_ids)) == len(bank_ids)
     assert header[9] == len(bank_ids)
     assert {bank for bank in range(112) if header[18 + bank]} == set(bank_ids)
     assert int.from_bytes(header[14:16], "little") == args.org
@@ -98,6 +107,8 @@ def main() -> None:
         assert all(entry_is_valid(page, entry_id) for entry_id in range(page[0]))
 
         corrupt = bytearray(page)
+        corrupt[2:4] = OVERLAY_BASE.to_bytes(2, "little")
+        assert not entry_is_valid(corrupt, 0)
         corrupt[2:4] = (0x2000 + len(overlay)).to_bytes(2, "little")
         assert not entry_is_valid(corrupt, 0)
         corrupt[OVERLAY_SIZE_OFFSET:PAGE_SIZE] = (0xFFFF).to_bytes(2, "little")
@@ -108,8 +119,10 @@ def main() -> None:
     stored_dat = b"".join(banks[bank] for bank in range(DAT_FIRST_BANK, DAT_FIRST_BANK + dat_bank_count))
     assert stored_dat[: len(stored_source)] == stored_source
     assert not any(stored_dat[len(stored_source) :])
+    assert b"".join(banks[bank] for bank in earth_bank_ids) == earth
+    assert all(bank not in banks for bank in range(STARFIELD_BANK, STARFIELD_BANK + 3))
     assert int.from_bytes(header[12:14], "little") == symbols["__register_sp"]
-    print("NEX resident, eight overlay pages and DAT verified byte for byte")
+    print("NEX resident, eight overlay pages, DAT and 48 colour Earth frames verified byte for byte")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,9 @@ _globe_tick_ovl:
     or a
     ret z
 
+IFDEF SPECTALK_NEXT
+    jp next_earth_tick
+ELSE
     ; Draw current buffer FIRST. Anchors visible repaint to consistent
     ; timing right after frame_wait. Variable fread latency is absorbed
     ; into the post-draw window of this same tick, so display update no
@@ -153,6 +156,14 @@ ENDIF
 
 about_tick_fail:
     jp _about_close_ovl
+ENDIF
+
+IFDEF SPECTALK_NEXT
+    PUBLIC next_earth_open
+    PUBLIC next_earth_close
+    EXTERN earth_apply_delta
+    INCLUDE "overlay/earth_next.asm"
+ENDIF
 
 _earth_ready: db 0
 _frame_idx:   db 0

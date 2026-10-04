@@ -70,7 +70,7 @@ def main() -> None:
     next_all = section(makefile, "next-all:", "next-check:")
     frame_wait_drain = section(frames, "_frame_wait_drain:", "; system ram hijacking")
 
-    assert "asm/next_uart.asm asm/next_data.asm" in makefile
+    assert "asm/next_uart.asm asm/next_clock.asm asm/next_data.asm" in makefile
     assert "overlay_cap = 8190" in makefile
     assert "next_raw_code = $(output)__.bin" in makefile
     assert 'test -f "$(next_raw_code)"' in makefile
@@ -83,7 +83,7 @@ def main() -> None:
     assert "ovl_code_base           equ 0x2000" in loader
     assert "ovl_code_end            equ 0x4000" in loader
     assert "ovl_code_size_addr" in loader
-    assert "ovl_code_limit_neg" in loader
+    assert "ovl_code_size_addr - ovl_code_base + 1" in loader
     assert "ld de, (ovl_code_size_addr)" in loader
     assert "overlay_size_offset = page_size - overlay_size_trailer" in packer
     assert "size > overlay_max_size" in packer
@@ -107,9 +107,18 @@ def main() -> None:
     assert "next_entry_id" not in loader
     assert_asm_order(
         section(loader, "next_overlay_entry:", ";; a=nextreg number"),
-        "ld a, l", "push de", "ld hl, ovl_code_limit_neg", "add hl, de",
-        "jr c, next_overlay_entry_pop_bad", "ex de, hl",
-        "ld de, ovl_code_base", "or a", "sbc hl, de",
+        "ld a, l", "ld c, (hl)", "cp c",
+        "sla e", "rl d", "inc de", "inc de",
+        "ld hl, (ovl_code_size_addr)",
+        "ld bc, ovl_code_size_addr - ovl_code_base + 1",
+        "sbc hl, bc", "jr nc, next_overlay_entry_bad",
+        "ld hl, (ovl_code_size_addr)", "sbc hl, de",
+        "jr c, next_overlay_entry_bad", "push de",
+        "pop bc", "push de", "ex de, hl",
+        "ld de, ovl_code_base", "sbc hl, de",
+        "sbc hl, bc", "jr c, next_overlay_entry_pop_bad",
+        "add hl, bc", "ld de, (ovl_code_size_addr)",
+        "sbc hl, de", "jr nc, next_overlay_entry_pop_bad",
     )
     assert_asm_order(
         section(loader, "next_overlay_entry_bad:", ";; a=nextreg number"),
@@ -126,8 +135,9 @@ def main() -> None:
     assert "_esx_" not in loader and "_ring_buffer" not in loader
     assert "call _next_overlay_suspend" in frames
     assert "call _next_overlay_restore" in frames
-    next_frame_wait_drain = section(frame_wait_drain, "ifdef spectalk_next", "else")
-    assert_asm_order(next_frame_wait_drain, "call _frame_wait", "jp _net_pump_rx")
+    next_frame_wait_drain = section(frame_wait_drain, "ifdef spectalk_next", "endif")
+    assert_asm_order(next_frame_wait_drain, "ld a, (_next_overlay_active)",
+                     "or a", "jr z, fwd_poll", "call _frame_wait", "jp _net_pump_rx")
     assert "ei" not in asm_lines(next_frame_wait_drain)
     assert "extern __bss_user_tail" in preamble
     assert "ld hl, __bss_user_tail" in preamble
@@ -149,7 +159,8 @@ def main() -> None:
     assert "call _next_rtc_drvapi" in rtc and "call _next_rtc_getdate" in rtc
     assert "public _next_esp_reset_ovl" in rtc
     assert "ld b, 25" in rtc and "ld b, 180" not in rtc
-    assert "dw 5" in rtc_entries and "dw _next_esp_reset_ovl" in rtc_entries
+    assert "dw 6" in rtc_entries and "dw _next_esp_reset_ovl" in rtc_entries
+    assert "dw _config_load_ovl" in rtc_entries
     assert "#ifdef spectalk_next int8_t sntp_tz = tz_rtc;" in compact(source)
     assert "cfg_ok = config_load();" in source
     assert "sntp_tz = tz_rtc;" not in section(source, "cfg_ok = config_load();", "apply_theme();")
@@ -230,7 +241,7 @@ def main() -> None:
     assert "scrollback" not in makefile
     assert "c:\\dev\\spectalk-next" not in makefile
     assert 'irc client for zx spectrum next";' in source
-    assert 'db "spectalkzx 1.4.0: irc client for zx spectrum next",0' in text("overlay/earth_about_render.asm")
+    assert 'db "spectalkzx 1.4.1: irc client for zx spectrum next",0' in text("overlay/earth_about_render.asm")
     for bookmark in bookmark_sources:
         path_fn = bookmark[bookmark.index("static const char *bm_path") : bookmark.index("static const char *bm_line")]
         native = path_fn[path_fn.index("#elif defined(spectalk_next)") : path_fn.index("#else")]
@@ -239,7 +250,7 @@ def main() -> None:
         assert "return path;" in native
         assert 'bm_path_alt "/sys/sptbm1.cfg"' in bookmark
         assert "esx_fopen(bm_path_alt(slot))" in bookmark
-        assert "esx_fcreate(bm_path_alt(bookmark_sel))" in bookmark
+    assert "esx_replace_write(bm_path_alt(bookmark_sel))" in bookmark_sources[0]
     print("Native Next direct-overlay, DAT and ROM trampoline contract OK")
 
 

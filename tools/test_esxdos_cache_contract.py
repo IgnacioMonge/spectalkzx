@@ -9,24 +9,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_IO_COUNTS = {
     "asm/overlay_loader.asm": 9,
-    "asm/spectalk_asm/60_protocol_storage.asm": 9,
-    "overlay/bookmark_store_ovl.c": 8,
-    "overlay/bookmarks_ovl.c": 7,
-    "overlay/earth_about_render.asm": 7,
+    "asm/spectalk_asm/60_protocol_storage.asm": 20,
+    "asm/spectalk_asm/80_ui_runtime.asm": 1,
+    "overlay/bookmark_store_ovl.c": 9,
+    "overlay/bookmarks_ovl.c": 5,
+    "overlay/earth_about_render.asm": 8,
     "overlay/overlay_entry2.asm": 2,
+    "overlay/esx_write_ovl.asm": 13,
     "overlay/rtc_seed_ovl.asm": 2,
     "overlay/spxn_page_loader.asm": 3,
     "overlay/spectalk_ovl.c": 5,
     "overlay/spectalk_ovl3.c": 4,
-    "overlay/spectalk_ovl4.c": 4,
-    "overlay/xfs_write_ovl.asm": 2,
-    "src/spectalk.c": 6,
+    "overlay/spectalk_ovl4.c": 2,
+    "overlay/xfs_write_ovl.asm": 3,
+    "src/spectalk.c": 4,
+    "src/config_load.c": 3,
 }
 
-C_IO = re.compile(r"\b(?:esx_f(?:open|create|read|write|close|seek_set)|"
+C_IO = re.compile(r"\b(?:esx_f(?:open|create|read|write|close|seek_set|unlink|rename)|"
+                  r"esx_replace_write|dat_open|"
                   r"data_(?:open|fread|close|fseek_set))\s*\(")
-ASM_IO = re.compile(r"\bcall\s+(?:_esx_f(?:open|create|read|write|close|seek_set)|"
-                    r"data_f(?:read|seek))\b", re.I)
+ASM_IO = re.compile(r"\b(?:call|jp)\s+(?:_esx_f(?:open|create|read|write|close|seek_set|unlink|rename)|"
+                    r"data_f(?:read|seek)|_(?:dat_open|ovl_open|resources_release)|"
+                    r"_spxn_xfs_(?:(?:open|use|release)_keep|close_active))\b", re.I)
 RST8 = re.compile(r"^\s*rst\s+8\b", re.I | re.M)
 
 
@@ -76,8 +81,8 @@ def main():
     changes = [line.strip() for line in source("release/changes.txt").splitlines()
                if line.strip()]
     assert 2 <= len(changes) <= 12
-    assert changes[-1] == "And much, much more!"
-    assert max(map(len, changes[:-1])) <= 40
+    # Release wording is data; every current line must fit the renderer.
+    assert max(map(len, changes)) <= 40
 
     persistent = words(block(source("src/spectalk.c"),
                              "char rx_line[RX_LINE_SIZE];", "uint16_t rx_pos;"))
@@ -95,9 +100,15 @@ def main():
                 source("asm/spectalk_asm/50_main_output.asm"))
     assert not re.search(r"(?<![_A-Za-z0-9])plf_pair_count\b", renderer)
 
-    names = words(block(source("src/irc_handlers.c"),
+    handlers = source("src/irc_handlers.c")
+    assert "static char names_friend_buf[47];" in handlers
+    assert "#define names_friend_buf notif_buf" not in handlers
+    names = words(block(handlers,
                         "static void h_numeric_353", "static void h_numeric_321"))
-    assert names.count("if (names_friend_pos >= 64) names_friend_pos = 0") == 2
+    assert names.count("if (names_friend_pos >= sizeof(names_friend_buf)) names_friend_pos = 0") == 2
+    assert "if (!overlay_mode && friend_count)" in names
+    assert "names_friend_pos < sizeof(names_friend_buf) - 3" in names
+    assert "names_friend_pos < sizeof(names_friend_buf) - 1" in names
 
     help_c = source("overlay/spectalk_ovl.c")
     help_io = words(block(help_c, "static void help_load_segment", "static uint8_t load_next_seg"))
@@ -124,18 +135,22 @@ def main():
 
     config = words(block(source("overlay/spectalk_ovl4.c"), "void save_config_ovl"))
     assert config.count("input_cache_invalidate()") == 1
-    assert "done: input_cache_invalidate(); reset_rx_state()" in config
+    assert "if (saved == 2) saved = esx_replace_write(K_CFG_ALT)" in config
+    assert "config_dirty = 0" in config
+    assert "done: input_cache_invalidate(); overlay_rx_release()" in config
 
     store_c = source("overlay/bookmark_store_ovl.c")
     store_line = words(block(store_c, "static const char *bm_line", "static const char *bm_next_field"))
     store_save = words(block(store_c, "void bookmarks_save_ovl"))
+    store_delete = words(block(store_c, "void bookmarks_delete_store_ovl"))
     assert "if (!esx_handle) esx_fopen(bm_path_alt(slot))" in store_line
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in store_line
     assert "esx_fclose(); input_cache_invalidate()" in store_line
-    assert "if (!esx_handle) { input_cache_invalidate(); goto err; }" in store_save
-    assert "if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel))" in store_save
-    assert store_save.find("input_cache_invalidate()", store_save.rfind("esx_fclose();")) >= 0
+    assert "if (saved == 2) saved = esx_replace_write(bm_path_alt(bookmark_sel))" in store_save
     assert store_save.find("input_cache_invalidate()", store_save.find("esx_replace_write")) >= 0
+    assert "esx_count = 0" in store_delete
+    assert "if (saved == 2) saved = esx_replace_write(bm_path_alt(bookmark_sel))" in store_delete
+    assert "esx_funlink(bm_path_alt(bookmark_sel))" in store_delete
 
     bookmarks_c = source("overlay/bookmarks_ovl.c")
     bookmarks_line = words(block(bookmarks_c, "static const char *bm_line", "static uint8_t bm_server_eq"))
@@ -143,11 +158,17 @@ def main():
     assert "if (!esx_handle) esx_fopen(bm_path_alt(slot))" in bookmarks_line
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in bookmarks_line
     assert "esx_fclose(); input_cache_invalidate()" in bookmarks_line
-    assert "if (!esx_handle)" in bookmarks_delete
-    assert "if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel))" in bookmarks_delete
-    assert "if (!esx_result)" in bookmarks_delete
-    assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.rfind("esx_fclose();")) >= 0
+    assert "esx_funlink(bm_path(bookmark_sel))" in bookmarks_delete
+    assert "#ifndef SPECTALK_SPECTRANEXT overlay_slot[0] = 0" in bookmarks_delete
     assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.find("esx_funlink")) >= 0
+
+    user_cmds = words(source("src/user_cmds.c"))
+    assert "#define BOOKMARK_DELETE_ENTRY 3" in user_cmds
+    assert "overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_DELETE_ENTRY)" in user_cmds
+    assert "bookmark_render_list()" in user_cmds
+
+    staged = words(source("overlay/esx_write_ovl.asm"))
+    assert "ld hl, (_esx_count) ld a, h or l jr z, storage_write_checked" in staged
 
     rtc = source("overlay/rtc_seed_ovl.asm")
     rtc_top = words(block(rtc, "_rtc_seed_ovl:", "; --- esxDOS"))
@@ -164,7 +185,8 @@ def main():
 
     loader = words(source("asm/overlay_loader.asm"))
     assert "call _esx_fclose call _input_cache_invalidate" in loader
-    assert "ovl_fail: pop ix" in loader and "call _overlay_exit_full" in loader
+    assert "ovl_fail: ld hl, 0 ld (ovl_loaded_len), hl pop ix" in loader
+    assert "call _overlay_exit_full" in loader
     exit_full = words(block(source("asm/spectalk_asm/10_core_helpers.asm"),
                             "_overlay_exit_full:", "; -----------------------------------------------------------------------------"))
     assert "jp _redraw_input_full" in exit_full

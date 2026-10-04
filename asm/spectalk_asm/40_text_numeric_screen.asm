@@ -218,7 +218,7 @@ u16_skip:
 ; uint16_t str_to_u16(const char *s) __z88dk_fastcall
 ; Convierte string decimal a uint16
 ; input: HL = puntero al string
-; Retorna: HL = valor
+; Returns HL = decimal prefix, saturated at 65535 on overflow.
 ; -----------------------------------------------------------------------------
 _str_to_u16:
     ex de, hl               ; DE = string pointer
@@ -231,16 +231,24 @@ stu16_loop:
     
     ; HL = HL * 10 + A, keeping DE as the string pointer
     add hl, hl              ; *2
+    jr c, stu16_overflow
     ld c, l
     ld b, h                 ; BC = original HL * 2
     add hl, hl              ; *4
+    jr c, stu16_overflow
     add hl, hl              ; *8
+    jr c, stu16_overflow
     add hl, bc              ; *10
+    jr c, stu16_overflow
     ld c, a
     ld b, 0
     add hl, bc              ; + digit
+    jr c, stu16_overflow
     inc de
     jr stu16_loop
+stu16_overflow:
+    ld hl, 65535
+    ret
 
 ; =============================================================================
 ; PARSING IRC
@@ -259,6 +267,22 @@ IFDEF SPECTALK_SPECTRANEXT
 EXTERN _net_send_string
 DEFC _uart_send_string = _net_send_string
 ELSE
+SECTION bss_user
+PUBLIC _uart_tx_failed
+_uart_tx_failed: defs 1       ; 0=healthy, 1=pending report, 2=reported
+SECTION code_user
+PUBLIC _uart_tx_fail
+_uart_tx_fail:
+    xor a
+    ld (_connection_state), a
+    ld (_sntp_init_sent), a
+    ld (_sntp_waiting), a
+    ld a, 1
+    ld (_uart_tx_failed), a
+    ld (_status_bar_dirty), a
+    scf
+    ret
+
 _uart_send_string:
 usend_loop:
     ld a, (hl)
@@ -269,6 +293,7 @@ usend_loop:
     ld l, a
     call _ay_uart_send
     pop hl
+    ret c                   ; stop at the first unsent byte
     inc hl
     jr usend_loop
 ENDIF
@@ -333,9 +358,8 @@ _fast_fill_attr:
 
 ; =============================================================================
 ; void cls_fast(void)
-; Borrado completo de pantalla con estrategia "Chunked LDIR".
-; 1. Borra el bitmap (6144 bytes) en bloques de 128 bytes para no bloquear UART.
-; 2. Repinta los atributos usando el sistema de temas.
+; Clears the bitmap through a temporary stack under DI, then paints attributes.
+; Does not service UART during the clear; caller owns RX scheduling.
 ; =============================================================================
 
 _cls_fast:
@@ -420,6 +444,10 @@ _main_hline:
     or a
     call nz, _main_newline
 
+    ld a, (_main_col)
+    cp 64
+    ret z                       ; pagination cancelled the initial newline
+
     ld a, (_main_line)
     call _compute_screen_base
     inc h
@@ -450,6 +478,19 @@ _main_hline:
 IFDEF SPECTALK_NEXT
 DRAIN_UART_STATUS   EQU 0x133B
 DRAIN_UART_RX       EQU 0x143B
+EXTERN _next_uart_status
+
+; The error path can invalidate global ring indices while this drain caches
+; them in the alternate bank. Reload only on that path; AF is preserved.
+drain_next_status:
+    call _next_uart_status
+    bit 6, a
+    ret z
+    exx
+    ld hl, (_rb_head)
+    ld de, (_rb_tail)
+    exx
+    ret
 ELSE
 DRAIN_ZXUNO_ADDR        EQU 0xFC3B
 DRAIN_UART_DATA_REG     EQU 0xC6
@@ -462,6 +503,12 @@ EXTERN _net_pump_rx
 DEFC _uart_drain_to_buffer = _net_pump_rx
 ELSE
 _uart_drain_to_buffer:
+IFNDEF SPECTALK_NEXT
+EXTERN _overlay_exec_active
+    ld a, (_overlay_exec_active)
+    or a
+    ret nz
+ENDIF
     ld a, (_uart_drain_limit)
     or a
     jr nz, drain_set_limit
@@ -485,7 +532,7 @@ ENDIF
 
 drain_loop_start:
 IFDEF SPECTALK_NEXT
-    in a, (c)
+    call drain_next_status
     rrca
     jr nc, drain_maybe_wait
 ELSE
@@ -498,6 +545,21 @@ ELSE
 ENDIF
 
 drain_read_ready:
+    ; Reserve the ring slot before reading. A full ring leaves the byte in the
+    ; UART: Classic CTS holds the ESP, and Next keeps it in the hardware FIFO.
+    exx
+    ld b, h
+    ld c, l                 ; BC = current head offset
+    inc hl
+    res 3, h                ; future head = (head + 1) & 0x07FF
+    or a
+    sbc hl, de              ; full if future head == tail
+    add hl, de              ; restore future head; Z preserved
+    jr z, drain_ring_full
+    push hl                 ; save future head
+    ld hl, _ring_buffer
+    add hl, bc              ; HL' = &_ring_buffer[current head]
+    exx
 IFDEF SPECTALK_NEXT
     inc b
     in a, (c)
@@ -510,21 +572,7 @@ ELSE
     inc b
     in a, (c)
 ENDIF
-
-    ; Inline rb_push for the synchronous polling drain.
-    ; A = byte, main BC = UART port ($FD3B), shadow HL'=head, DE'=tail.
     exx
-    ld b, h
-    ld c, l                 ; BC = current head offset
-    inc hl
-    res 3, h                ; future head = (head + 1) & 0x07FF
-    or a
-    sbc hl, de              ; full if future head == tail
-    add hl, de              ; restore future head; Z preserved
-    jr z, drain_ring_full
-    push hl                 ; save future head
-    ld hl, _ring_buffer
-    add hl, bc              ; HL = &_ring_buffer[current head]
     ld (hl), a
     pop hl                  ; HL' = future head
     exx
@@ -538,11 +586,10 @@ ENDIF
 
 drain_ring_full:
     ld h, b
-    ld l, c                 ; restore uncommitted current head
+    ld l, c                 ; uncommitted current head; the byte stays unread
+    ld (_rb_head), hl
     exx
-    ld a, 1
-    ld (_rx_overflow), a
-    jr drain_commit_ret
+    ret
 
 drain_maybe_wait:
     ld a, e
@@ -557,7 +604,7 @@ ENDIF
     ld e, 4
 drain_wait_next:
 IFDEF SPECTALK_NEXT
-    in a, (c)
+    call drain_next_status
     rrca
     jr c, drain_read_ready
 ELSE

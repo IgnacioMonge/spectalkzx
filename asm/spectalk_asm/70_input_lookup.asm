@@ -240,7 +240,6 @@ u8a_tbl_c0:
 ; HL = line pointer
 ; Response format: +CIPSNTPTIME:Thu Jan 01 00:00:00 1970
 ; =============================================================================
-PUBLIC _sntp_process_response
 EXTERN _sntp_waiting
 EXTERN _sntp_queried
 EXTERN _time_hour
@@ -250,87 +249,105 @@ EXTERN _last_frames_lo
 EXTERN _tick_accum
 EXTERN _draw_status_bar
 
+IFNDEF SPECTALK_SPECTRANEXT
+PUBLIC _sntp_process_response
 _sntp_process_response:
-    ; Validate: if (!line || line[0] != '+' || line[1] != 'C') return
+    ; Validate the complete response prefix before scanning its payload.
     ld a, h
     or l
     ret z
-    ld a, (hl)
-    cp '+'
+    ld de, spr_prefix
+    ld b, 13
+spr_prefix_loop:
+    ld a, (de)
+    cp (hl)
     ret nz
+    inc de
     inc hl
-    ld a, (hl)
-    cp 'C'
-    ret nz
-    ld de, 12
-    add hl, de          ; HL = &line[13], first char after "+CIPSNTPTIME:"
+    djnz spr_prefix_loop
 
 spr_scan:
     ld a, (hl)
     or a
-    jr z, spr_notfound
-    sub '0'
-    cp 3                ; accept only first digit 0..2
-    jr nc, spr_next
+    jp z, spr_notfound
+    cp 33
+    jr nc, spr_candidate
+    inc hl
+    jr spr_scan
 
-    ; Check line[i+2] == ':'
-    ld d, h
-    ld e, l
-    inc de
-    inc de
-    ld a, (de)
-    cp ':'
-    jr nz, spr_next
+spr_candidate:
+    push hl             ; candidate start for bounded retry
 
-    ; Check line[i+5] == ':'
-    inc de
-    inc de
-    inc de
-    ld a, (de)
+    call spr_parse2_checked
+    jr c, spr_bad
+    cp 24
+    jr nc, spr_bad
+    ld b, a             ; validated hour
+    ld a, (hl)
     cp ':'
-    jr nz, spr_next
+    jr nz, spr_bad
+    inc hl
+
+    call spr_parse2_checked
+    jr c, spr_bad
+    cp 60
+    jr nc, spr_bad
+    ld c, a             ; validated minute
+    ld a, (hl)
+    cp ':'
+    jr nz, spr_bad
+    inc hl
+
+    call spr_parse2_checked
+    jr c, spr_bad
+    cp 60
+    jr nc, spr_bad
+    ld d, a             ; validated second
+
+    ; The complete HH:MM:SS token must end here, not inside a longer token.
+    ld a, (hl)
+    or a
+    jr z, spr_found
+    cp 33
+    jr nc, spr_bad
 
     ; Check for ESP placeholder year: "HH:MM:SS 1970"
-    inc de
-    inc de
-    inc de
-    inc de              ; DE = &line[i+9]
-    ld a, (de)
+spr_year_skip:
+    inc hl
+    ld a, (hl)
+    or a
+    jr z, spr_found
+    cp 33
+    jr c, spr_year_skip
     cp '1'
     jr nz, spr_found
-    inc de
-    ld a, (de)
+    inc hl
+    ld a, (hl)
     cp '9'
     jr nz, spr_found
-    inc de
-    ld a, (de)
+    inc hl
+    ld a, (hl)
     cp '7'
     jr nz, spr_found
-    inc de
-    ld a, (de)
+    inc hl
+    ld a, (hl)
     cp '0'
-    jr z, spr_notfound
+    jr nz, spr_found
+    inc hl
+    ld a, (hl)
+    or a
+    jr z, spr_bad
+    cp 33
+    jr c, spr_bad
 
     ; === FOUND HH:MM:SS at HL ===
 spr_found:
-    ; Parse hour
-    call spr_parse2
-    cp 24
-    ret nc                  ; invalid hour
+    pop hl                  ; discard candidate pointer
+    ld a, b
     ld (_time_hour), a
-    inc hl              ; HL past ':'
-
-    ; Parse minute
-    call spr_parse2
-    cp 60
-    ret nc                  ; invalid minute
+    ld a, c
     ld (_time_minute), a
-    inc hl              ; HL past ':'
-
-    ; Parse second
-    call spr_parse2
-    cp 60
-    ret nc                  ; invalid second
+    ld a, d
     ld (_time_second), a
 
     ; Sync frame ticker to current FRAMES, sntp_waiting = 0, sntp_queried = 1
@@ -338,49 +355,74 @@ spr_found:
     ld (_last_frames_lo), a
     xor a
     ld (_tick_accum), a     ; Reset frame accumulator
+IFDEF SPECTALK_NEXT
+    ld (_tick_accum+1), a   ; Native fractional frame units use both bytes
+ENDIF
     ld (_sntp_waiting), a
     inc a
     ld (_sntp_queried), a
 
     jp _draw_status_bar ; tail call
 
-spr_next:
+spr_bad:
+    pop hl                  ; reject the complete token, not a matching suffix
+spr_skip_token:
+    ld a, (hl)
+    or a
+    jr z, spr_notfound
+    cp 33
+    jp c, spr_scan
     inc hl
-    jr spr_scan
+    jr spr_skip_token
 
 spr_notfound:
     xor a
     ld (_sntp_waiting), a
     ret
 
-; --- subroutine: parse 2-digit decimal at (HL) ---
+spr_prefix:
+    defm "+CIPSNTPTIME:"
+
+; --- subroutine: validate and parse 2-digit decimal at (HL) ---
 ; Input:  HL = pointer to first digit
 ; Output: A = parsed value (0..99), HL = pointer past second digit
-; Clobbers: C
-spr_parse2:
+;         CF = 0 on success, 1 if either byte is not an ASCII digit
+; Clobbers: DE
+spr_parse2_checked:
     ld a, (hl)
     sub '0'
-    ld c, a
+    cp 10
+    jr nc, spr_parse2_bad
+    ld e, a
+    inc hl
+    ld a, (hl)
+    sub '0'
+    cp 10
+    jr nc, spr_parse2_bad
+    ld d, a
+    ld a, e
     add a, a            ; *2
     add a, a            ; *4
-    add a, c            ; *5
+    add a, e            ; *5
     add a, a            ; *10
+    add a, d
     inc hl
-    ld c, a
-    ld a, (hl)
-    sub '0'
-    add a, c
-    inc hl
+    or a                ; clear carry
     ret
+spr_parse2_bad:
+    scf
+    ret
+ENDIF
 
 ; void sntp_udp_fallback(void)
 ; Calls SPCTLK6 entry 0 only when numeric SNTP was initialized and no valid
 ; CIPSNTPTIME/UDP response has been accepted. State 3 suppresses automatic
 ; idle retries, but direct /server calls may try again before opening TCP.
-PUBLIC _sntp_udp_fallback
 EXTERN _overlay_exec
 EXTERN _sntp_init_sent
 
+IFNDEF SPECTALK_SPECTRANEXT
+PUBLIC _sntp_udp_fallback
 _sntp_udp_fallback:
     ld a, (_sntp_init_sent)
     or a
@@ -394,6 +436,7 @@ _sntp_udp_fallback:
     push hl
     call _overlay_exec
     ret
+ENDIF
 
 ; =============================================================================
 ; uint8_t read_key(void)

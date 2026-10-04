@@ -13,8 +13,9 @@
  */
 
 #include "overlay_api.h"
+#include <string.h>
 
-extern void reset_rx_state(void);
+extern void overlay_rx_release(void);
 
 #ifdef __SDCC
 #define ST_NAKED __naked
@@ -192,7 +193,7 @@ void help_render_ovl(void)
     } /* end of total_pages scope */
 
     if (help_page == 0) notif_center(s_hnot, theme_attrs[TATTR_MSG_SYS]);
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 /* ================================================================
@@ -230,7 +231,7 @@ void banner_render_ovl(void)
         print_big_str(0, bp ? 58 : 61, bp ? "_ [] X" : "<<<", banner_attr);
     }
     { uint8_t i; uint8_t *p = (uint8_t *)0x4040; for (i = 0; i < 32; i++) *p++ = 0xFF; }
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 /* ================================================================
@@ -275,7 +276,7 @@ void windows_render_ovl(void)
 
     if (n == 0) main_puts(" (none)");
     main_newline();
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 /* ================================================================
@@ -295,5 +296,35 @@ void theme_msg_ovl(void)
 {
     sys_puts_print(search_pattern[0] ? "Theme set to " : "Already using ",
                    theme_name_ovl((uint8_t)search_pattern[1]));
-    reset_rx_state();
+    overlay_rx_release();
+}
+
+/* Only an explicit /login can nominate a destination and command. */
+void login_cmd_ovl(void)
+{
+    char *target = (char *)overlay_slot;
+    char *text = split_at_space(target);
+    char *p;
+    if (auth_mode == AUTH_PENDING) { ui_err("Login pending"); goto done; }
+    if (!text || !*target || !*text ||
+        st_strlen(target) >= AUTH_SERVICE_SIZE ||
+        st_strlen(text) >= AUTH_COMMAND_SIZE ||
+        strchr("#&$*+@%~", target[0]) || strchr(text, '|')) goto bad;
+
+    /* One scan also avoids SDCC's stale-HL fold of consecutive strchr calls. */
+    for (p = target; *p; p++)
+        if (*p == ',' || *p == ':' || *p == '|') goto bad;
+
+    st_copy_n(nickserv_nick, target, AUTH_SERVICE_SIZE);
+    st_copy_n(nickserv_pass, text, AUTH_COMMAND_SIZE);
+    auth_mode = AUTH_PENDING;
+    autojoin_defer_flags |= AUTOJOIN_IDENT_SENT;
+    if (autojoin) autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+    irc_send_cmd2("PRIVMSG", nickserv_nick, nickserv_pass);
+    notify("Waiting for login confirmation", ATTR_MSG_SYS);
+    goto done;
+bad:
+    ui_usage("login service command [arguments]");
+done:
+    overlay_rx_release();
 }

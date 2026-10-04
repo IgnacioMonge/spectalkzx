@@ -457,17 +457,20 @@ BPE_DICT_BSS_SIZE = 222  # Must match asm/spectalk_asm/30_rendering.asm bpe_dict
 
 def generate_dict_binary(dictionary):
     """Generate dictionary as binary data (3 bytes per entry: b1, b2, 0x00).
-    Keep the binary exact; BSS reserve must match the generated size."""
+    Pad unused entries with literal pairs to keep the fixed runtime layout."""
     data = bytearray()
-    for a, b in dictionary:
+    for token, (a, b) in enumerate(dictionary, TOKEN_START):
+        if not 0 < a < token or not 0 < b < token:
+            raise ValueError("BPE operands must be literals or earlier tokens")
         data.append(a)
         data.append(b)
         data.append(0)  # null terminator for stack-based expansion
-    if len(data) != BPE_DICT_BSS_SIZE:
+    if len(data) > BPE_DICT_BSS_SIZE:
         raise ValueError(
             f"BPE dict is {len(data)} bytes, but BSS reserve is "
             f"{BPE_DICT_BSS_SIZE}; update bpe_dict defs and BPE_DICT_BSS_SIZE together"
         )
+    data.extend(b"??\0" * ((BPE_DICT_BSS_SIZE - len(data)) // 3))
     return bytes(data)
 
 

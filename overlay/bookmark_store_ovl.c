@@ -5,11 +5,14 @@
 
 #include "overlay_api.h"
 
-#define BM_LINE_MAX 160
+#define BM_LINE_MAX 256
 #define BM_AUTOLOGIN 0x80
 
 extern uint8_t bookmark_sel;
 extern uint8_t bookmark_active_slot;
+#ifndef SPECTALK_SPECTRANEXT
+extern uint8_t bookmark_rows[];
+#endif
 
 #ifdef SPECTALK_SPECTRANEXT
 #define BM_PATH "/CFG/SPTBM1.CFG"
@@ -24,6 +27,9 @@ static char bm_path_buf[] = BM_PATH;
 #endif
 #endif
 static const char bm_error[] = "Error";
+#ifndef SPECTALK_SPECTRANEXT
+static const char bm_delete_error[] = "Delete error";
+#endif
 
 static const char *bm_path(uint8_t slot) __z88dk_fastcall
 {
@@ -80,46 +86,82 @@ static const char *bm_line(uint8_t slot) __z88dk_fastcall
     return (const char *)overlay_slot;
 }
 
-static const char *bm_next_field(const char *p, char *dst, uint8_t max)
+/* Callee stack: return, source, destination, one-byte destination size. */
+static const char *bm_next_field(const char *p, char *dst, uint8_t max) __z88dk_callee __naked
 {
-    uint8_t n = 0;
-    char c;
-
-    max--;
-    while ((c = *p) >= 32 && c != '|') {
-        if (n < max) dst[n++] = c;
-        p++;
-    }
-    dst[n] = 0;
-    return (c == '|') ? p + 1 : p;
+    (void)p; (void)dst; (void)max;
+    __asm
+    push ix
+    ld ix,0
+    add ix,sp
+    ld l,(ix+4)
+    ld h,(ix+5)
+    ld e,(ix+6)
+    ld d,(ix+7)
+    ld b,(ix+8)
+    dec b
+bm_field_loop:
+    ld a,(hl)
+    cp 32
+    jr c,bm_field_end
+    cp '|'
+    jr z,bm_field_end
+    ld c,a
+    ld a,b
+    or a
+    jr z,bm_field_skip
+    ld a,c
+    ld (de),a
+    inc de
+    dec b
+bm_field_skip:
+    inc hl
+    jr bm_field_loop
+bm_field_end:
+    ld c,a
+    xor a
+    ld (de),a
+    ld a,c
+    cp '|'
+    jr nz,bm_field_return
+    inc hl
+bm_field_return:
+    pop ix
+    pop bc
+    pop de
+    pop de
+    inc sp
+    push bc
+    ret
+    __endasm;
 }
 
-static uint8_t bm_apply_line(const char *p, uint8_t mode)
+static void bm_apply_line(const char *p)
 {
     p = bm_next_field(p, irc_server, IRC_SERVER_SIZE);
     p = bm_next_field(p, irc_port, IRC_PORT_SIZE);
     p = bm_next_field(p, irc_pass, IRC_PASS_SIZE);
     p = bm_next_field(p, autojoin_channels, SEARCH_PATTERN_SIZE);
     st_copy_n(search_pattern, autojoin_channels, SEARCH_PATTERN_SIZE);
-
-    if (!irc_server[0]) {
-        ui_err(bm_error);
-        return 0;
-    }
-    if (mode) {
-        autoconnect = 1;
-        autojoin = (mode == 2);
-        config_dirty = 1;
+    if (*p >= 32) {
+        p = bm_next_field(p, nickserv_nick, AUTH_SERVICE_SIZE);
+        p = bm_next_field(p, nickserv_pass, AUTH_COMMAND_SIZE);
+        auth_mode = (*p == '2') ? AUTH_LEARNED : AUTH_LEGACY;
     } else {
-        autojoin = (autojoin_channels[0] ? 1 : 0);
+        nickserv_nick[0] = nickserv_pass[0] = 0;
+        auth_mode = AUTH_LEGACY;
     }
-    return 1;
+    auth_profile = bookmark_sel + 1;
+
+    autojoin = (autojoin_channels[0] ? 1 : 0);
 }
 
-static char *bm_put_field(char *p, const char *s)
+#if IRC_SERVER_SIZE + IRC_PORT_SIZE + IRC_PASS_SIZE + SEARCH_PATTERN_SIZE + AUTH_SERVICE_SIZE + AUTH_COMMAND_SIZE + 2 > BM_LINE_MAX
+#error Bookmark record exceeds buffer
+#endif
+static char *bm_put_field(char *p, const char *s) __z88dk_callee
 {
-    char *end = (char *)overlay_slot + BM_LINE_MAX - 2;
-    while (*s && p < end) *p++ = *s++;
+    while (*s) *p++ = *s++;
     *p++ = '|';
     return p;
 }
@@ -127,71 +169,91 @@ static char *bm_put_field(char *p, const char *s)
 void bookmarks_apply_ovl(void)
 {
     uint8_t mode = overlay_slot[0];
-    const char *p = bm_line(bookmark_sel);
-    if (!p) {
-        overlay_slot[0] = 0;
-        ui_err(bm_error);
-        reset_rx_state();
-        return;
-    }
+    const char *p;
 
-    if (bm_apply_line(p, mode)) {
-        if (mode) {
-            bookmark_active_slot = (uint8_t)(bookmark_sel + 1);
-            if (mode == 2) bookmark_active_slot |= BM_AUTOLOGIN;
-        }
-        overlay_slot[0] = 1;
-    } else {
-        overlay_slot[0] = 0;
+    p = bm_line(bookmark_sel);
+    if (!p || *p <= ' ' || *p == '|') {
+        ui_err(bm_error);
+        goto fail;
     }
-    reset_rx_state();
+    if (mode) {
+        bookmark_active_slot = (uint8_t)(bookmark_sel + 1);
+        if (mode == 2) bookmark_active_slot |= BM_AUTOLOGIN;
+        config_dirty = 1;
+    } else {
+        bm_apply_line(p);
+    }
+    overlay_slot[0] = 1;
+    goto done;
+fail:
+    overlay_slot[0] = 0;
+done:
+    overlay_rx_release();
 }
 
 void bookmarks_save_ovl(void)
 {
     char *p = (char *)overlay_slot;
-    uint16_t expected;
+    uint8_t saved;
 
-    if (!irc_server[0]) goto err;
+    if (!irc_server[0] || auth_mode == AUTH_PENDING) goto err;
 
     p = bm_put_field(p, irc_server);
     p = bm_put_field(p, irc_port);
     p = bm_put_field(p, irc_pass);
     p = bm_put_field(p, search_pattern);
-    p[-1] = '\n';
+    p = bm_put_field(p, nickserv_nick);
+    p = bm_put_field(p, nickserv_pass);
+    *p++ = (auth_mode >= AUTH_LEARNED) ? '2' : '0';
+    *p++ = '\n';
 
-    expected = (uint16_t)(p - (char *)overlay_slot);
-#ifdef SPECTALK_SPECTRANEXT
     esx_buf = (uint16_t)overlay_slot;
-    esx_count = expected;
-    if (!esx_replace_write(bm_path(bookmark_sel))) {
-        input_cache_invalidate();
-        goto err;
-    }
-#else
-    esx_fcreate(bm_path(bookmark_sel));
-    if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel));
-    if (!esx_handle) {
-        input_cache_invalidate();
-        goto err;
-    }
-    esx_buf = (uint16_t)overlay_slot;
-    esx_count = expected;
-    esx_fwrite();
-    esx_fclose();
+    esx_count = (uint16_t)(p - (char *)overlay_slot);
+    saved = esx_replace_write(bm_path(bookmark_sel));
+#ifndef SPECTALK_SPECTRANEXT
+    if (saved == 2) saved = esx_replace_write(bm_path_alt(bookmark_sel));
 #endif
     input_cache_invalidate();
-
-#ifdef SPECTALK_SPECTRANEXT
+    if (saved != 1) goto err;
     overlay_slot[0] = 1;
-#else
-    overlay_slot[0] = (esx_result == expected);
-    if (!overlay_slot[0]) goto err;
-#endif
-    reset_rx_state();
+    overlay_rx_release();
     return;
 err:
     overlay_slot[0] = 0;
     ui_err(bm_error);
-    reset_rx_state();
+    overlay_rx_release();
 }
+
+#ifndef SPECTALK_SPECTRANEXT
+void bookmarks_delete_store_ovl(void)
+{
+    uint8_t saved;
+
+    if (!(bookmark_rows[bookmark_sel] & 0x80)) {
+        overlay_slot[0] = 0;
+        overlay_rx_release();
+        return;
+    }
+
+    esx_buf = (uint16_t)overlay_slot;
+    esx_count = 0;
+    saved = esx_replace_write(bm_path(bookmark_sel));
+    if (saved == 2) saved = esx_replace_write(bm_path_alt(bookmark_sel));
+    else if (saved == 1) esx_funlink(bm_path_alt(bookmark_sel));
+    if (saved != 1) {
+        input_cache_invalidate();
+        overlay_slot[0] = 0;
+        ui_err(bm_delete_error);
+        overlay_rx_release();
+        return;
+    }
+
+    input_cache_invalidate();
+    if ((bookmark_active_slot & BOOKMARK_SLOT_MASK) == bookmark_sel + 1) {
+        bookmark_active_slot = BM_AUTOLOGIN;  // explicit OFF; preserve live session
+        config_dirty = 1;
+    }
+    overlay_slot[0] = 1;
+    overlay_rx_release();
+}
+#endif

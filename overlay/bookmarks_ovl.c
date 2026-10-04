@@ -5,7 +5,7 @@
 #include "overlay_api.h"
 
 #define BM_USER_SLOTS 5
-#define BM_LINE_MAX 160
+#define BM_LINE_MAX 256
 #define BM_FIRST_ROW 6
 #define BM_LAST_ROW 19
 #define BM_INDENT 4
@@ -51,6 +51,7 @@ static const char *bm_path(uint8_t slot) __z88dk_fastcall
     path[BM_PATH_SLOT] = (uint8_t)('1' + slot);
     return path;
 #else
+    st_copy_n(bm_path_buf, BM_PATH, sizeof(BM_PATH));
     bm_path_buf[BM_PATH_SLOT] = (uint8_t)('1' + slot);
     return bm_path_buf;
 #endif
@@ -107,12 +108,12 @@ static uint8_t bm_server_eq(const char *p) __z88dk_fastcall
 
 static uint8_t bm_current_active(void)
 {
-    uint8_t slot = bookmark_active_slot & 0x7F;
+    uint8_t slot = bookmark_active_slot & BOOKMARK_SLOT_MASK;
     if (slot) return (uint8_t)(slot - 1);
-    if (autoconnect && irc_server[0]) {
+    if (!bookmark_active_slot && autoconnect && irc_server[0]) {
         for (slot = 0; slot < BM_USER_SLOTS; slot++) {
             if (bm_server_eq(bm_line(slot))) {
-                bookmark_active_slot = (uint8_t)(slot + 1);
+                bookmark_active_slot = (uint8_t)(slot + 1) | BOOKMARK_INFERRED;
                 if (autojoin) bookmark_active_slot |= BM_AUTOLOGIN;
                 return slot;
             }
@@ -160,7 +161,7 @@ static void bm_server_row(uint8_t slot, uint8_t row, const char *p)
             *q++ = ' ';
             *q++ = 'P';
         }
-        if ((bookmark_active_slot & 0x7F) == slot + 1) {
+        if ((bookmark_active_slot & BOOKMARK_SLOT_MASK) == slot + 1) {
             s = bm_autocon;
             while (*s && q < end) *q++ = *s++;
             if (bookmark_active_slot & BM_AUTOLOGIN) {
@@ -180,14 +181,14 @@ static uint8_t bm_channel_rows(const char *p, uint8_t row, uint8_t last_row)
     uint8_t n;
 
     if ((uint8_t)*p < 32) return row;
-    while ((uint8_t)*p >= 32 && row <= last_row) {
+    while ((uint8_t)*p >= 32 && *p != '|' && row <= last_row) {
         p = skip_spaces((char *)p);
         line[0] = ' ';
         line[1] = ' ';
         line[2] = ' ';
         line[3] = ' ';
         n = BM_INDENT;
-        while ((uint8_t)*p >= 32 && n < 62) {
+        while ((uint8_t)*p >= 32 && *p != '|' && n < 62) {
             line[n++] = *p++;
             if (p[-1] == ',' && n > 45) break;
         }
@@ -215,7 +216,7 @@ void bookmarks_render_ovl(void)
     overlay_header(bm_title);
     bookmarks_list_ovl();
     notif_center(bm_footer, theme_attrs[TATTR_MSG_SYS]);
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void bookmarks_list_ovl(void)
@@ -227,7 +228,7 @@ void bookmarks_list_ovl(void)
     clear_zone(BM_FIRST_ROW, BM_LAST_ROW - BM_FIRST_ROW + 1, theme_attrs[TATTR_MAIN_BG]);
     for (i = 0; i < BM_USER_SLOTS && row <= BM_LAST_ROW; i++)
         row = bm_item(i, row);
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void bookmarks_rows_ovl(void)
@@ -238,7 +239,7 @@ void bookmarks_rows_ovl(void)
         bm_server_row(prev_slot, bookmark_rows[prev_slot] & BM_ROW_MASK, bm_line(prev_slot));
     if (prev_slot != bookmark_sel)
         bm_server_row(bookmark_sel, bookmark_rows[bookmark_sel] & BM_ROW_MASK, bm_line(bookmark_sel));
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 static void bm_cursor_char(uint8_t slot, uint8_t c)
@@ -253,43 +254,35 @@ void bookmarks_cursor_ovl(void)
     uint8_t prev_slot = overlay_slot[0];
     if (prev_slot < BM_USER_SLOTS) bm_cursor_char(prev_slot, ' ');
     bm_cursor_char(bookmark_sel, '>');
-    reset_rx_state();
+    overlay_rx_release();
 }
 
 void bookmarks_delete_ovl(void)
 {
+#ifndef SPECTALK_SPECTRANEXT
+    overlay_slot[0] = 0;
+    overlay_rx_release();
+#else
     if (!(bookmark_rows[bookmark_sel] & BM_OCCUPIED)) {
         overlay_slot[0] = 0;
-        reset_rx_state();
+        overlay_rx_release();
         return;
     }
 
-#ifdef SPECTALK_SPECTRANEXT
     esx_funlink(bm_path(bookmark_sel));
     if (!esx_result) {
-#else
-    esx_fcreate(bm_path(bookmark_sel));
-    if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel));
-    if (!esx_handle) {
-#endif
         input_cache_invalidate();
         overlay_slot[0] = 0;
         ui_err("Delete error");
-        reset_rx_state();
+        overlay_rx_release();
         return;
     }
-#ifndef SPECTALK_SPECTRANEXT
-    esx_fclose();
-#endif
     input_cache_invalidate();
-    if ((bookmark_active_slot & 0x7F) == bookmark_sel + 1) {
-        bookmark_active_slot = 0;
-        autoconnect = 0;
-        autojoin = 0;
-        autojoin_channels[0] = 0;
-        search_pattern[0] = 0;
+    if ((bookmark_active_slot & BOOKMARK_SLOT_MASK) == bookmark_sel + 1) {
+        bookmark_active_slot = BM_AUTOLOGIN;  // explicit OFF; preserve live session
         config_dirty = 1;
     }
     overlay_slot[0] = 1;
     bookmarks_list_ovl();
+#endif
 }

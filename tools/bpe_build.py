@@ -46,7 +46,7 @@ BACKUP_FILES = [
 # Internal display-only codepoint: UTF-8 ñ/Ñ maps to byte 127.
 # The 64-col renderer accepts 32..127, while BPE tokens start at 128.
 SPANISH_N_CODE = 127
-SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
+SPANISH_N_PACKED = bytes((0x6C, 0xAA, 0xAA))
 DAT_BASE_SIZE = 373
 EARTH_FRAME_COUNT = 24
 EARTH_FRAME0_SIZE = 587
@@ -63,7 +63,6 @@ SAFE_CONSTANTS = [
     "S_NOTCONN",
     "S_FAIL",
     "S_NOTSET",
-    "S_DISCONN",
     "S_APPNAME",
     "S_COPYRIGHT",
     "S_MAXWIN",
@@ -76,9 +75,6 @@ SAFE_CONSTANTS = [
     "S_ARROW_OUT",
     "S_EMPTY_PAT",
     "S_ALREADY_IN",
-    "S_ASTERISK",
-    "S_COLON_SP",
-    "S_SP_PAREN",
     "S_TOPIC_PFX",
     "S_CONN_REFUSED",
     "S_INIT_DOTS",
@@ -89,18 +85,11 @@ SAFE_CONSTANTS = [
     "S_NICK_INUSE",
     "S_AS_SP",
     "S_MIN",
-    "S_SET",
     "S_DOT_SP",
     "S_USAGE_MSG",
-    "S_COMMA_SP",
     "S_JOINED_SP",
     "S_SMART",
-    "S_MODE_SP_SCR",
-    "S_IN_SP",
-    "S_QUIT_SUFFIX",
     "S_SP_LBRACKET",
-    "S_CHANNEL_WORD",
-    "S_USAGE_NOTICE",
 ]
 
 # New SB_ constants for indirect screen-only usage. Each row drives the
@@ -149,6 +138,7 @@ def patch_spectalk_c(content, bpe_load_size=691):
     """Apply structural patches for BPE support."""
     # esx_count for SPECTALK.DAT with dict (dynamic based on actual dict size)
     content = content.replace("esx_count = 373;", f"esx_count = {bpe_load_size};")
+    content = content.replace("esx_result < 373", f"esx_result < {bpe_load_size}")
 
     # BPE bypass in main_print fast path
     content = content.replace(
@@ -474,6 +464,7 @@ def build_bpe():
         bpe_compress,
         generate_compressed_sources,
         generate_dict_binary,
+        BPE_DICT_BSS_SIZE,
     )
 
     bpe_src = os.path.join(BUILD_DIR, "bpe_src")
@@ -504,7 +495,7 @@ def build_bpe():
     src_paths = [os.path.join(bpe_src, f) for f in SRC_FILES]
     strings = extract_string_literals(src_paths)
     corpus = build_corpus(strings)
-    compressed, dictionary = bpe_compress(corpus)
+    compressed, dictionary = bpe_compress(corpus, max_tokens=BPE_DICT_BSS_SIZE // 3)
 
     screen_count = sum(1 for s in strings if s["screen_only"])
     content_bytes = sum(1 for b in corpus if b != 0)
@@ -574,6 +565,9 @@ def build_bpe():
                 f"esx_count = {DEFAULT_OFFSET};", f"esx_count = {bpe_load_size};"
             )
             content = content.replace(
+                f"esx_result < {DEFAULT_OFFSET}", f"esx_result < {bpe_load_size}"
+            )
+            content = content.replace(
                 f"ring_buffer + {DEFAULT_OFFSET}", f"ring_buffer + {bpe_load_size}"
             )
             write_file(path, content)
@@ -593,14 +587,14 @@ def build_bpe():
     with open(dat_orig, "rb") as f:
         orig = f.read()
 
-    lut = orig[:10]
+    reserved = orig[:10]  # zero; former LUT slot keeps DAT offsets
     packed = bytearray(orig[10:298])
     # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
-    # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
+    # Row patterns 6,C,A,A,A,A -> tilde row + compact 'n' body.
     n_tilde_off = (SPANISH_N_CODE - 32) * 3
     packed[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
 
-    header = bytearray(lut)
+    header = bytearray(reserved)
     header.extend(packed)
     header.extend(orig[298:373])  # themes
     with open(HELP_TEXT_PATH, "rb") as f:

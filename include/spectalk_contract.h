@@ -8,7 +8,7 @@
 #ifndef SPECTALK_CONTRACT_H
 #define SPECTALK_CONTRACT_H
 
-#define VERSION "1.4.0"
+#define VERSION "1.4.1"
 
 #define RING_BUFFER_SIZE 2048
 #define RING_BUFFER_MASK (RING_BUFFER_SIZE - 1)
@@ -20,6 +20,20 @@
 #define IRC_PORT_SIZE      6
 #define IRC_NICK_SIZE     18
 #define IRC_PASS_SIZE     24
+#define AUTH_SERVICE_SIZE 32
+#define AUTH_COMMAND_SIZE 64
+#define AUTH_LEGACY        0
+#define AUTH_PENDING       1
+#define AUTH_LEARNED       2
+#define AUTH_SAVE          3
+
+/* Bookmark startup selection; inferred legacy UI marks are never persisted. */
+#define BOOKMARK_SLOT_MASK 0x3F
+#define BOOKMARK_INFERRED  0x40
+
+#define AUTOJOIN_MOTD_DONE   0x01
+#define AUTOJOIN_IDENT_WAIT  0x02
+#define AUTOJOIN_IDENT_SENT  0x04
 #define USER_MODE_SIZE     6
 #define NETWORK_NAME_SIZE 12
 #define NAMES_TARGET_CHANNEL_SIZE 32

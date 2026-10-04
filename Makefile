@@ -43,7 +43,7 @@ SKIP_CHECK ?= 0
 
 ifeq ($(PLATFORM),next)
 TARGET = +zxn
-ASM_SOURCES = asm/next_uart.asm asm/next_data.asm asm/spectalk_asm.asm asm/next_overlay_loader.asm
+ASM_SOURCES = asm/next_uart.asm asm/next_clock.asm asm/next_data.asm asm/spectalk_asm.asm asm/next_overlay_loader.asm
 TARGET_FLAGS = -DSPECTALK_NEXT -Ca-DSPECTALK_NEXT
 TARGET_ASM_FLAGS = -DSPECTALK_NEXT
 OVERLAY_LOAD_ADDR = 2000
@@ -62,6 +62,7 @@ ASM_SOURCES  = asm/spectalk_asm.asm asm/overlay_loader.asm \
                $(SPXN_DIR)/adapters/xfs_compat.asm
 TARGET_FLAGS = -DSPECTALK_SPECTRANEXT -Ca-DSPECTALK_SPECTRANEXT \
                -DSPXN_ROM_HELD -Ca-DSPXN_ROM_HELD \
+               -Ca-DSPXN_XFS_KEEP_HANDLES \
                -Ca-DSPXN_XFS_STATE_BASE=0x5B80 \
                -Ca-DSPXN_XFS_DIR_SCRATCH=0x5CB6 \
                -Ca-DSPXN_XFS_SCRATCH_PRESERVE_BASE=0x5CB6 \
@@ -96,10 +97,10 @@ ASM_MODULE_SOURCES = asm/spectalk_asm/00_preamble.asm \
                      asm/spectalk_asm/70_input_lookup.asm \
                      asm/spectalk_asm/80_ui_runtime.asm
 ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
-BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c src/net_classic.c src/clock_classic.c \
+BPE_INPUTS = src/spectalk.c src/config_load.c src/config_apply.c src/irc_handlers.c src/user_cmds.c src/net_classic.c src/clock_classic.c \
              src/net_spectranext.c src/clock_spectranext.c \
              include/spectalk.h include/spectalk_net.h include/spectalk_clock.h \
-             src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h overlay/xfs_write_ovl.asm \
+             src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h overlay/xfs_write_ovl.asm overlay/esx_write_ovl.asm \
              overlay/overlay_entry2.asm overlay/earth_about_render.asm \
              tools/bpe_build.py tools/bpe_compress.py \
              release/about_earth/earth_frame0.compact.bin \
@@ -113,7 +114,7 @@ STACK_SIZE  = 512
 BSS_RING_GUARD ?= 96
 BSS_RING_WARN  ?= 128
 
-MAX_ALLOCS_PER_NODE ?= 125000
+MAX_ALLOCS_PER_NODE ?= 200000
 MAX_ALLOC_CFLAGS = --max-allocs-per-node$(MAX_ALLOCS_PER_NODE)
 EXTRA_CFLAGS ?=
 BUILD_PROFILE ?= NORMAL
@@ -245,6 +246,7 @@ check: toolchain_guard
 		[ "$$fail" = "0" ] || exit 2; \
 	'
 	@$(PYTHON) tools/test_bpe_transaction.py
+	@$(PYTHON) tools/test_bpe_notification_strings.py
 	@$(PYTHON) tools/test_config_keys.py
 	@$(PYTHON) tools/test_network_seam.py
 	@$(PYTHON) tools/test_spectranext_release_blockers.py
@@ -252,6 +254,9 @@ check: toolchain_guard
 	@$(PYTHON) tools/test_clock_seam.py
 	@$(PYTHON) tools/test_earth_packet_bounds.py
 	@$(PYTHON) tools/test_udp_tx_timeout.py
+	@$(PYTHON) tools/test_transport_integrity.py
+	@$(PYTHON) tools/test_overlay_validation.py
+	@$(PYTHON) tools/test_ui_protocol_validation.py
 	@$(PYTHON) tools/test_rtc_validation.py
 	@$(PYTHON) tools/test_copt_label_safety.py
 	@$(PYTHON) tools/test_scroll_contract.py
@@ -300,6 +305,11 @@ spectranext:
 	@$(PYTHON) tools/test_spectranext_driver_contract.py "$(SPXN_DIR)"
 	@$(MAKE) --no-print-directory PLATFORM=spectranext SPXN_DIR="$(SPXN_DIR)" all
 
+.PHONY: spectranext-direct
+spectranext-direct: spectranext
+	@$(PYTHON) tools/build_spectranext_direct.py "$(SPXN_DIR)"
+	@$(PYTHON) tools/test_spectranext_direct.py
+
 next:
 	@$(MAKE) --no-print-directory PLATFORM=next next-all
 
@@ -314,6 +324,7 @@ next-all:
 next-check: check
 	@$(PYTHON) -m py_compile tools/gen_next_nex.py tools/test_next_nex_image.py tools/test_next_runtime_contract.py
 	@$(PYTHON) tools/test_next_runtime_contract.py
+	@$(PYTHON) tools/test_next_earth.py
 	$(call OK,Native Next prerequisites OK)
 
 test-spectranext-network:
@@ -489,11 +500,13 @@ _overlay_build: $(RESIDENT_TARGET)
 	$(PYTHON) tools/gen_whatsnew.py 2>&1 || exit 1; \
 	$$OVL_ZCC -c overlay/spectalk_ovl3.c -o $(BUILD_DIR)/spectalk_ovl3.o 2>&1 || exit 1; \
 	$$OVL_ZCC -c overlay/bookmark_store_ovl.c -o $(BUILD_DIR)/bookmark_store_ovl.o 2>&1 || exit 1; \
+	if [ "$(PLATFORM)" != "spectranext" ]; then $$OVL_ASM -I$(BUILD_DIR) overlay/esx_write_ovl.asm 2>&1 || exit 1; fi; \
 	$$OVL_ASM -I$(BUILD_DIR) overlay/overlay_entry3.asm 2>&1 || exit 1; \
 	$$OVL_ASM -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK3.OVL \
 		overlay/overlay_entry3.o \
 		$(BUILD_DIR)/spectalk_ovl3.o \
 		$(if $(filter-out spectranext,$(PLATFORM)),$(BUILD_DIR)/bookmark_store_ovl.o) \
+		$(if $(filter-out spectranext,$(PLATFORM)),overlay/esx_write_ovl.o) \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl3_size=$$(wc -c < $(BUILD_DIR)/SPCTLK3.OVL); \
 	if [ "$$ovl3_size" -gt $(OVERLAY_CAP) ]; then \
@@ -512,6 +525,7 @@ _overlay_build: $(RESIDENT_TARGET)
 		$(BUILD_DIR)/spectalk_ovl4.o \
 		$(if $(filter spectranext,$(PLATFORM)),$(BUILD_DIR)/bookmark_store_ovl.o) \
 		$(if $(filter spectranext,$(PLATFORM)),overlay/xfs_write_ovl.o) \
+		$(if $(filter-out spectranext,$(PLATFORM)),overlay/esx_write_ovl.o) \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl4_size=$$(wc -c < $(BUILD_DIR)/SPCTLK4.OVL); \
 	if [ "$$ovl4_size" -gt $(OVERLAY_CAP) ]; then \

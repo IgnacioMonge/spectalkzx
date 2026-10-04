@@ -60,6 +60,14 @@ rb_pop_empty:
 ; Retorna: L=1 (?xito), L=0 (Buffer Lleno)
 ; -----------------------------------------------------------------------------
 _rb_push:
+IFNDEF SPECTALK_NEXT
+IFNDEF SPECTALK_SPECTRANEXT
+EXTERN _overlay_exec_active
+    ld a, (_overlay_exec_active)
+    or a
+    jr nz, _rb_push_full ; byte already consumed: preserve the loss boundary
+ENDIF
+ENDIF
     ld a, l             ; Keep byte in A; OR A below clears Carry without changing it
     
     ; 1. Calcular d?nde ir?a el NUEVO Head = (head + 1) & MASK
@@ -97,8 +105,7 @@ _rb_push_ok:
     ret
 
 _rb_push_full:
-    ld a, 1
-    ld (_rx_overflow), a
+    call _rx_discard_pending
     ld l, 0             ; Retornar 0 (Fallo/Lleno)
     ret
 

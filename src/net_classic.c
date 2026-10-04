@@ -10,12 +10,12 @@ static uint8_t classic_wait_connect(uint16_t max_frames) __z88dk_fastcall
     while (frames < max_frames) {
         uint16_t h2;
 
+        if (uart_tx_failed) return NET_CONNECT_ERROR;
+
         frame_wait_drain();
+        frames++;
         if (in_inkey() == KEY_BREAK) return NET_CONNECT_CANCELLED;
-        if (!try_read_line_nodrain()) {
-            frames++;
-            continue;
-        }
+        if (!try_read_line_nodrain()) continue;
         if (rx_last_len < 2) {
             rx_pos = 0;
             continue;
@@ -34,7 +34,6 @@ static uint8_t classic_wait_connect(uint16_t max_frames) __z88dk_fastcall
         }
         if (h2 == 0x5245) { rx_pos = 0; return NET_CONNECT_ERROR; }
         rx_pos = 0;
-        frames++;
     }
     return NET_CONNECT_TIMEOUT;
 }
@@ -82,6 +81,8 @@ uint8_t classic_net_start_stream(void)
 void classic_net_close(void)
 {
     uint8_t i;
+
+    if (uart_tx_failed) return; /* A partial command must not be retried. */
 
     if (connection_state >= STATE_TCP_CONNECTED) {
         for (i = 0; i < 65; i++) { frame_wait(); flush_all_rx_buffers(); }

@@ -56,7 +56,15 @@ REQUIRED_FUNCTIONS = [
     "_notify2",
     "_ui_err",
     "_ui_usage",
+    "_send_identify",
+    "_irc_send_cmd2",
+    "_irc_send_privmsg",
+    "_last_pm_nick",
+    "_irc_is_away",
+    "_away_message",
+    "_S_AWAY_CMD",
     "_reset_rx_state",
+    "_overlay_rx_release",
     "_skip_spaces",
     "_split_at_space",
     "_add_ignore",
@@ -93,6 +101,7 @@ REQUIRED_VARIABLES = [
     "_ring_buffer",
     "_overlay_slot",
     "_rx_last_len",
+    "_rx_overflow",
     # Theme / print cursor
     "_theme_attrs",
     "_theme_raw",
@@ -145,6 +154,14 @@ REQUIRED_VARIABLES = [
     "_irc_pass",
     "_nickserv_pass",
     "_nickserv_nick",
+    "_autojoin_defer_flags",
+    "_auth_mode",
+    "_auth_profile",
+    "_has_esxdos",
+    "_cfg_apply",
+    "_K_AUTHCMD",
+    "_K_BOOKMARK",
+    "_K_NICKSERV",
     "_current_theme",
     "_current_channel_idx",
     "_beep_enabled",
@@ -188,6 +205,8 @@ REQUIRED_VARIABLES = [
 ]
 
 OPTIONAL_TARGET_SYMBOLS = [
+    "_uart_tx_failed",
+    "_next_uart_status",
     "_dat_open",
     "_dat_fread",
     "_dat_fseek_set",
@@ -199,6 +218,7 @@ OPTIONAL_TARGET_SYMBOLS = [
     "_spxn_rom_detect",
     "_spxn_regs",
     "_esx_funlink",
+    "_esx_frename",
     "_esx_freplace",
     "_esx_commit",
     "_spxn_overlay_page",
@@ -230,7 +250,11 @@ def main():
     print()
 
     missing = []
-    for name in REQUIRED_FUNCTIONS + REQUIRED_VARIABLES:
+    required = REQUIRED_FUNCTIONS + REQUIRED_VARIABLES
+    if "_spxn_overlay_page" in symbols:
+        required = [name for name in required if name not in ("_cfg_apply", "uartRead")]
+        required += ["_K_TZLAST", "_K_FRIENDS", "_K_IGNORES"]
+    for name in required:
         if name in symbols:
             print(f"PUBLIC {name}")
             print(f"DEFC {name} = ${symbols[name]:04X}")

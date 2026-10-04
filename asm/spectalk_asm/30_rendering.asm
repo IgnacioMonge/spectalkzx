@@ -32,19 +32,19 @@ _compute_attr_base:
 ; =============================================================================
 ; Solo 10 valores ?nicos en toda la fuente original:
 ; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
-; Raw 6-row font data is generated from the packed source into SPECTALK.DAT.
+; Each packed nibble is the 4px row pattern itself (no lookup table).
 ; Renderers draw one explicit blank top scanline, 6 glyph scanlines, then one
 ; explicit blank bottom scanline.
 ; Data loaded from SPECTALK.DAT at startup:
-; [10 LUT bytes][288 packed glyph bytes][75 theme_raw] = 373 bytes contiguous.
+; [10 reserved zero bytes][288 packed glyph bytes][75 theme_raw] = 373 bytes.
 SECTION bss_user
 ; Not CRT-zeroed: this block is populated from SPECTALK.DAT before first use.
 PUBLIC _font_lut
 _font_lut:
 font_lut:
-    defs 10               ; nibble -> expanded 4px row byte LUT
+    defs 10               ; reserved (former LUT); keeps DAT offsets stable
 font64_packed:
-    defs 288              ; 96 chars * 3 bytes, 2 packed rows per byte
+    defs 288              ; 96 chars * 3 bytes, high nibble = upper row
 PUBLIC _theme_raw
 _theme_raw:
     defs 75
@@ -55,11 +55,44 @@ bpe_dict:
 
 SECTION code_user
 
+; Validate the loaded 74-entry BPE dictionary before any display expansion.
+; Each triple is [left,right,0]; operands are literals or earlier tokens.
+; Returns L=1 if valid, L=0 otherwise. Preserves IX/IY.
+PUBLIC _bpe_validate
+_bpe_validate:
+    ld hl, bpe_dict
+    ld b, 74
+    ld c, 0x80
+bv_entry:
+    ld a, (hl)
+    or a
+    jr z, bv_bad
+    cp c
+    jr nc, bv_bad
+    inc hl
+    ld a, (hl)
+    or a
+    jr z, bv_bad
+    cp c
+    jr nc, bv_bad
+    inc hl
+    ld a, (hl)
+    inc hl
+    or a
+    jr nz, bv_bad
+    inc c
+    djnz bv_entry
+    ld l, 1
+    ret
+bv_bad:
+    ld l, 0
+    ret
+
 ; =============================================================================
 ; GLYPH DECOMPRESSOR
-; Input: A = char (ASCII 32-127)
-; Output: HL = glyph_buffer, containing the 6 raw source rows.
-; Preserves: IY (required by z88dk)
+; Input: A = char (ASCII 32-127); unpack_glyph_de also takes DE = destination.
+; Output: HL = destination (glyph_buffer for unpack_glyph), containing 6 rows
+;         with each 4px pattern copied into both nibbles.
 ; Preserves: BC, IX, IY.
 ; Destroys: AF, DE, HL.
 ; =============================================================================
@@ -67,53 +100,44 @@ blank_glyph:
     defb 0, 0, 0, 0, 0, 0, 0
 
 unpack_glyph:
+    ld de, glyph_buffer
+unpack_glyph_de:
     push bc
-    ; Calculate source offset: (char - 32) * 3 packed bytes.
-    sub 32
+    push de
+    ; Source offset: char * 3 from a base biased by 32 chars.
     ld l, a
     ld h, 0
-    ld d, h
-    ld e, l
+    ld c, l
+    ld b, h
     add hl, hl          ; *2
-    add hl, de          ; *3
-    ld de, font64_packed
-    add hl, de          ; HL = packed glyph source
-    ld de, glyph_buffer ; DE = expanded glyph destination
+    add hl, bc          ; *3
+    ld bc, font64_packed - 96
+    add hl, bc          ; HL = packed glyph source
     ld b, 3
 
 ug_unpack_loop:
+    ; byte = U:L. With t = byte ^ swapped(byte), both nibbles of t are U^L.
     ld a, (hl)
-    inc hl
+    rrca
+    rrca
+    rrca
+    rrca
+    xor (hl)
     ld c, a
-    push hl
-    rrca
-    rrca
-    rrca
-    rrca
     and 0x0F
-    call ug_lut_lookup
+    xor (hl)            ; U:U
     ld (de), a
     inc de
     ld a, c
-    and 0x0F
-    call ug_lut_lookup
+    and 0xF0
+    xor (hl)            ; L:L
     ld (de), a
     inc de
-    pop hl
+    inc hl
     djnz ug_unpack_loop
 
-    ld hl, glyph_buffer
+    pop hl
     pop bc
-    ret
-
-ug_lut_lookup:
-    push de
-    ld l, a
-    ld h, 0
-    ld de, font_lut
-    add hl, de
-    ld a, (hl)
-    pop de
     ret
 
 ; =============================================================================
@@ -834,6 +858,8 @@ _print_line64_fast:
     ; Unificado: si start=0, add a,l es no-op y sub c deja B=32.
     ; screen row base L is a multiple of 32; start_byte 0..31 never carries into H.
     ld a, (_plf_start_byte)
+    cp 32
+    jp nc, plf_no_ldir       ; invalid offset: reset caller state, draw nothing
     ld c, a
     add a, l
     ld l, a
@@ -899,13 +925,15 @@ plf_left_blank_right_normal:
 
 plf_left_normal:
     ; A = left char (33..127), HL = string pointer from the lookahead pass.
+    ; Expand the left glyph straight into plf_left_buf, leaving glyph_buffer
+    ; free for the right glyph without a copy.
     inc hl                 ; consume left char
-    push hl                ; string pointer above saved screen addr
-    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
-    ex (sp), hl            ; stack top = left glyph, HL = string pointer
+    push hl                ; string pointer
+    ld de, plf_left_buf
+    call unpack_glyph_de   ; A still has char
+    pop hl                 ; HL = string pointer; screen addr remains stacked
+    ld ix, plf_left_buf    ; unpack_glyph preserves IX
 
-    ; --- Leer char derecho antes de copiar el izquierdo ---
-    ; If the right side is blank, the write loop can use the left source directly.
     ld a, (hl)
     or a
     jr z, plf_right_blank_left_direct ; NUL: no avanzar puntero, usar espacio
@@ -915,19 +943,13 @@ plf_left_normal:
     cp 128
     jr c, plf_right_ok     ; char 33-127: OK
 plf_right_blank_left_direct:
-    pop ix                 ; IX = left glyph; screen addr remains stacked
     push hl                ; string pointer above saved screen addr
     ld de, blank_glyph
     jr plf_write_pair
 plf_right_ok:
-    ex (sp), hl            ; stack top = string pointer, HL = left glyph
-    ; Copy the left glyph only when the right glyph must also be resolved.
-    ld de, plf_left_buf
-    ld bc, 6
-    ldir
-    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
+    push hl                ; string pointer above saved screen addr
+    call unpack_glyph      ; A still has char
     ex de, hl              ; DE = pointer to right glyph
-    ld ix, plf_left_buf
 
 plf_write_pair:
     ; --- Combinar y escribir 8 scanlines ---

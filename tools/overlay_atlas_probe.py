@@ -41,6 +41,12 @@ def build_atlas(
     packed: bytes, sizes: list[int], block_size: int, header_len: int,
     prefix: bytes = b"", prefix_size: int = 0,
 ) -> bytes:
+    if not 0 < len(sizes) <= 0xFF:
+        raise ValueError("overlay count must fit one byte")
+    if not 8 <= header_len <= 0xFFFF:
+        raise ValueError("header length must fit one word")
+    if not 0 < block_size <= 0xFFFF or prefix_size < 0:
+        raise ValueError("block and prefix sizes must fit the atlas format")
     if len(packed) < block_size * len(sizes):
         raise ValueError("packed overlay is smaller than size list requires")
     if header_len < 8 + 4 * len(sizes):
@@ -53,8 +59,10 @@ def build_atlas(
     table = bytearray()
 
     for idx, size in enumerate(sizes):
-        if size < 0 or size > block_size:
-            raise ValueError(f"overlay {idx + 1} size {size} outside 0..{block_size}")
+        if size < 1 or size > block_size:
+            raise ValueError(f"overlay {idx + 1} size {size} outside 1..{block_size}")
+        if offset + size > 0xFFFF:
+            raise ValueError("atlas offsets exceed the 16-bit format")
         start = idx * block_size
         chunks.append(packed[start : start + size])
         table += struct.pack("<HH", offset, size)

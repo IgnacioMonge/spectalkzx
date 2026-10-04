@@ -58,9 +58,6 @@
 #define KEY_ENTER     13
 #define KEY_BREAK     3
 
-#define AUTOJOIN_MOTD_DONE   0x01
-#define AUTOJOIN_IDENT_WAIT  0x02
-#define AUTOJOIN_IDENT_SENT  0x04
 #define AUTOJOIN_IDENT_GRACE_FRAMES 250
 
 // =============================================================================
@@ -183,6 +180,11 @@ extern uint8_t try_read_line_nodrain(void);
 // =============================================================================
 extern void     ay_uart_init(void);
 extern void     ay_uart_send(uint8_t byte) __z88dk_fastcall;
+#ifdef SPECTALK_SPECTRANEXT
+#define uart_tx_failed 0
+#else
+extern uint8_t uart_tx_failed; /* Sticky failure: reset ESP and restart client. */
+#endif
 
 #include "spectalk_net.h"
 #include "spectalk_clock.h"
@@ -216,8 +218,10 @@ extern uint8_t show_channel_separators;
 extern int8_t sntp_tz;
 extern int8_t sntp_tz_last;
 extern char irc_pass[IRC_PASS_SIZE];
-extern char nickserv_pass[IRC_PASS_SIZE];
-extern char nickserv_nick[IRC_NICK_SIZE];
+extern char nickserv_pass[AUTH_COMMAND_SIZE];
+extern char nickserv_nick[AUTH_SERVICE_SIZE];
+extern uint8_t auth_mode;
+extern uint8_t auth_profile;
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
@@ -371,6 +375,7 @@ extern uint16_t rx_pos;
 extern uint16_t rx_last_len;
 extern uint8_t rx_overflow;  // Flag: overflow detected (0 or 1)
 extern void reset_rx_state(void);  // Zeros rb_head/rb_tail/rx_pos/rx_overflow
+extern void overlay_rx_release(void); // Preserve stream resynchronization on exit
 
 // UART drain
 extern uint8_t uart_drain_limit;
@@ -437,10 +442,8 @@ extern const char S_NICK_INUSE[];
 extern const char S_NICK_SP[];
 extern const char S_AS_SP[];
 extern const char S_MIN[];
-extern const char S_SET[];
 extern const char S_DOT_SP[];       // D9: ". " dedup
 extern const char S_USAGE_MSG[];    // D9: "msg nick message" dedup
-extern const char S_COMMA_SP[];     // D9: ", " dedup (3 uses)
 extern const char S_IDENTIFY_CMD[]; // D10: " :IDENTIFY "
 extern const char S_JOINED_SP[];    // D10: " joined "
 extern const char S_AWAY_CMD[];     // D10: "AWAY"
@@ -459,7 +462,6 @@ extern const char S_QUIT_SUFFIX[];
 extern const char S_SP_LBRACKET[];
 extern const char S_CHANNEL_WORD[];
 extern const char S_CLOSED_SP[];
-extern const char S_USAGE_NOTICE[];
 
 // =============================================================================
 // UI MACROS
@@ -500,6 +502,7 @@ void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_
 extern uint8_t overlay_mode;
 void draw_status_bar(void);
 void clear_main(void);
+uint8_t bpe_validate(void);
 void overlay_exit_full(void);  // OPT-SHRINK-R01: common overlay exit sequence (ASM)
 void redraw_input_full(void);
 void reapply_screen_attributes(void);
@@ -603,23 +606,23 @@ extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
 extern void esx_fwrite(void);
-#ifdef SPECTALK_SPECTRANEXT
 extern uint8_t esx_fclose(void);
-extern void esx_freplace(const char *path) __z88dk_fastcall;
 extern void esx_funlink(const char *path) __z88dk_fastcall;
+extern uint8_t esx_replace_write(const char *path) __z88dk_fastcall;
+#ifdef SPECTALK_SPECTRANEXT
+extern void esx_freplace(const char *path) __z88dk_fastcall;
 extern void esx_opendir(const char *path) __z88dk_fastcall;
 extern void esx_mkdir(const char *path) __z88dk_fastcall;
 extern void esx_commit(const char *path) __z88dk_fastcall;
-extern uint8_t esx_replace_write(const char *path) __z88dk_fastcall;
-#else
-extern void esx_fclose(void);
 #endif
 extern uint8_t  esx_handle;
 extern uint16_t esx_buf;
 extern uint16_t esx_count;
 extern uint16_t esx_result;
-#ifdef SPECTALK_NEXT
+#if defined(SPECTALK_NEXT) || defined(SPECTALK_SPECTRANEXT)
 extern void dat_open(void);
+#endif
+#ifdef SPECTALK_NEXT
 extern void dat_fread(void);
 extern uint8_t dat_fseek_set(uint16_t offset) __z88dk_fastcall;
 #endif

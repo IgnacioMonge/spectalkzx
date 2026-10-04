@@ -150,9 +150,10 @@ def frame_wait_contract() -> None:
 
     asm = text("asm/spectalk_asm/80_ui_runtime.asm")
     assert "PUBLIC _frame_wait_drain" in asm
-    target = section(asm, "IFDEF SPECTALK_SPECTRANEXT", "ELSE")
+    frame = asm.split("_frame_wait_drain:", 1)[1]
+    target = section(frame, "IFDEF SPECTALK_SPECTRANEXT", "ELSE")
     assert target.index("call _frame_wait") < target.index("jp _net_pump_rx")
-    classic = section(asm, "ELSE", "ENDIF")
+    classic = section(frame, "fwd_poll:", "ENDIF")
     assert "call uartRead" in classic
     assert "call _rb_push" in classic
 

@@ -27,6 +27,7 @@ IRC commands
 /nick	Change nickname
 /pass	Stored pass; clear|none next conn; no IRC PASS
 /id	Identify with NickServ
+/login	Learn service command after success
 /join	Join bare, # or & channel (/j)
 /part	Leave [#channel|&channel] [message] (/p)
 /msg	Private: /msg nick text (/m)

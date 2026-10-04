@@ -18,21 +18,30 @@
 ; =============================================================================
 ; BSS ZEROING - runs before main() via code_crt_init
 ; Allows the TAP binary to be truncated before BSS (saving ~4KB of zeros)
-; Classic clears compiler BSS. Spectranext also clears the DAT-loaded block
-; and driver state through its ROM-held byte. Native Next clears all bss_user
-; state because its MMU/DAT drivers live beyond compiler BSS.
+; Classic and native Next clear compiler and ASM state, including UART latches.
+; Spectranext also clears driver state through its ROM-held byte.
 ; =============================================================================
+; Paged startup moves the last resident caller of this shared overlay ABI helper.
+IFDEF SPECTALK_NEXT
+SECTION rodata_user
+EXTERN ____sdcc_4_push_hlix
+    defw ____sdcc_4_push_hlix
+ELSE
+IFDEF SPECTALK_SPECTRANEXT
+SECTION rodata_user
+EXTERN ____sdcc_4_push_hlix
+    defw ____sdcc_4_push_hlix
+ENDIF
+ENDIF
+
 SECTION code_crt_init
 EXTERN __data_compiler_tail
-EXTERN __bss_compiler_tail
+EXTERN __bss_user_tail
 EXTERN ___sdcc_enter_ix
 EXTERN _cur_chan_ptr
 EXTERN _current_channel_idx
 IFDEF SPECTALK_SPECTRANEXT
 EXTERN _spxn_rom_held
-ENDIF
-IFDEF SPECTALK_NEXT
-EXTERN __bss_user_tail
 ENDIF
     ; Mainline DI contract: ROM IM1 needs IY=0x5C3A, while sdcc_iy uses IY.
     ; Only guarded waits, ABOUT ticks, and the internal scroll install ROM IY
@@ -47,11 +56,7 @@ IFDEF SPECTALK_SPECTRANEXT
     ; last driver-state byte also invalidates installer residue at no cost.
     ld hl, _spxn_rom_held + 1
 ELSE
-IFDEF SPECTALK_NEXT
     ld hl, __bss_user_tail
-ELSE
-    ld hl, __bss_compiler_tail
-ENDIF
 ENDIF
     ld de, __data_compiler_tail
     or a

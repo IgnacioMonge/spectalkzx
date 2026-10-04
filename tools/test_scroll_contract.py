@@ -107,10 +107,23 @@ def prove_cold_space_contract():
     assert words("ld h, 32 jr puts_opt_char") in compact
 
 
+def prove_uart_service_contract():
+    screen = ASM.read_text(encoding="utf-8")
+    render = (ASM.parent / "30_rendering.asm").read_text(encoding="utf-8")
+    output = MAIN_OUTPUT_ASM.read_text(encoding="utf-8")
+    # Receiving traffic must not become synchronous work inside the renderer.
+    assert "render_poll_rx" not in screen + render + output
+    scroll = screen.split("_scroll_main_zone:", 1)[1].split("; void main_newline", 1)[0]
+    assert "_net_pump_rx" not in scroll
+    assert "_net_pump_rx" not in render + output
+    assert "call _net_pump_rx" in screen.split("_main_newline:", 1)[1]
+
+
 def main():
     prove_geometry()
     prove_source_contract()
     prove_cold_space_contract()
+    prove_uart_service_contract()
     print("Scroll contract check OK")
 
 

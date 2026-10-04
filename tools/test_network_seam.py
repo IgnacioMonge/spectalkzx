@@ -57,6 +57,13 @@ def assert_in_order(text: str, items: tuple[str, ...], owner: str) -> None:
 
 
 header = (ROOT / "include/spectalk_net.h").read_text(encoding="utf-8")
+if not re.search(r"^#define\s+net_start_stream\(\)\s+NET_STREAM_OK$", header, re.M):
+    raise AssertionError("missing zero-cost Spectranext stream start")
+
+spectranext = (ROOT / "src/net_spectranext.c").read_text(encoding="utf-8")
+if "uint8_t net_start_stream(" in spectranext:
+    raise AssertionError("Spectranext stream start must not emit a runtime stub")
+
 for alias, target in (
     ("net_send_byte", "ay_uart_send"),
     ("net_send_string", "uart_send_string"),

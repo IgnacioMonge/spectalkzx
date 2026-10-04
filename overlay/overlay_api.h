@@ -42,7 +42,7 @@ extern void notify(const char *msg, uint8_t attr) __z88dk_callee;
 extern void notify2(const char *a, const char *b, uint8_t attr) __z88dk_callee;
 extern void ui_err(const char *s) __z88dk_fastcall;
 extern void ui_usage(const char *a) __z88dk_fastcall;
-extern void reset_rx_state(void);
+extern void overlay_rx_release(void);
 extern const uint8_t ikkle_packed[];
 
 /* ===== String/number utilities ===== */
@@ -63,25 +63,24 @@ extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
 extern void esx_fwrite(void);
-#ifdef SPECTALK_SPECTRANEXT
 extern uint8_t esx_fclose(void);
 extern uint8_t esx_replace_write(const char *path) __z88dk_fastcall;
 extern void esx_funlink(const char *path) __z88dk_fastcall;
-#else
-extern void esx_fclose(void);
-#endif
 extern uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall;
 
-#ifdef SPECTALK_NEXT
+#if defined(SPECTALK_NEXT) || defined(SPECTALK_SPECTRANEXT)
 extern void dat_open(void);
+#define data_open() dat_open()
+#else
+#define data_open() esx_fopen(K_DAT)
+#endif
+#ifdef SPECTALK_NEXT
 extern void dat_fread(void);
 extern uint8_t dat_fseek_set(uint16_t offset) __z88dk_fastcall;
-#define data_open() dat_open()
 #define data_fread() dat_fread()
 #define data_fseek_set(offset) dat_fseek_set(offset)
 #define data_close() ((void)0)
 #else
-#define data_open() esx_fopen(K_DAT)
 #define data_fread() esx_fread()
 #define data_fseek_set(offset) esx_fseek_set(offset)
 #define data_close() esx_fclose()
@@ -136,6 +135,15 @@ extern char     irc_port[];
 extern char     irc_pass[];
 extern char     nickserv_pass[];
 extern char     nickserv_nick[];
+extern uint8_t  autojoin_defer_flags;
+extern uint8_t  auth_mode;
+extern uint8_t  auth_profile;
+extern uint8_t  has_esxdos;
+#ifndef SPECTALK_SPECTRANEXT
+extern void cfg_apply(char *key, char *value) __z88dk_callee;
+#endif
+extern void send_identify(const char *pass) __z88dk_fastcall;
+extern void irc_send_cmd2(const char *cmd, const char *target, const char *text) __z88dk_callee;
 extern uint8_t  current_theme;
 extern uint8_t  current_channel_idx;
 extern uint8_t  channels[];
@@ -155,6 +163,12 @@ extern uint8_t  autojoin;
 extern uint8_t  autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t  autoaway_active;
+extern uint8_t  irc_is_away;
+extern char     away_message[];
+extern char     last_pm_nick[];
+extern void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee;
+extern const char S_AWAY_CMD[];
+extern void draw_status_bar(void);
 extern uint8_t  connection_state;
 extern int8_t   sntp_tz;
 extern int8_t   sntp_tz_last;
@@ -184,6 +198,14 @@ extern const char K_SERVER[];
 extern const char K_PORT[];
 extern const char K_PASS[];
 extern const char K_NKPASS[];
+extern const char K_AUTHCMD[];
+extern const char K_BOOKMARK[];
+extern const char K_NICKSERV[];
+#ifdef SPECTALK_SPECTRANEXT
+extern const char K_TZLAST[];
+extern const char K_FRIENDS[];
+extern const char K_IGNORES[];
+#endif
 extern const char K_AUTOCONN[];
 extern const char K_AUTOJOIN[];
 extern const char K_THEME[];
@@ -204,7 +226,7 @@ extern const char S_ANYKEY[];
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
-#define BPE_HELP_OFFSET 14984
+#define BPE_HELP_OFFSET 15147
 #define WN_LOGO_OFFSET 14336
 #define EARTH_FRAME0_OFFSET 595
 #define EARTH_ATTR0_OFFSET 1182

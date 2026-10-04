@@ -90,10 +90,12 @@ const char S_ASTERISK[] = "* ";
 const char S_COLON_SP[] = ": ";
 const char S_SP_COLON[] = " :";
 const char S_SP_PAREN[] = " (";
+#ifndef SPECTALK_SPECTRANEXT
 const char S_AT_CIPCLOSE[] = "AT+CIPCLOSE";
 const char S_AT_CIPMODE0[] = "AT+CIPMODE=0";
 const char S_AT_CIPMUX0[] = "AT+CIPMUX=0";
 const char S_AT_CIPSERVER0[] = "AT+CIPSERVER=0";
+#endif
 const char S_PROMPT[] = "> ";
 const char S_CAP_END[] = "CAP END";
 const char S_GLOBAL[] = "Global";
@@ -113,21 +115,23 @@ const char S_NICK_INUSE[] = "Nick in use, trying: ";
 const char S_NICK_SP[] = "NICK ";
 const char S_AS_SP[] = " as ";
 const char S_MIN[] = " min";
-const char S_SET[] = "(set)";
 const char S_DOT_SP[] = ". ";           // D9: dedup from search results
 const char S_USAGE_MSG[] = "msg nick message"; // D9: dedup from cmd_msg
-const char S_COMMA_SP[] = ", ";              // D9: dedup (3 uses)
 const char S_IDENTIFY_CMD[] = " :IDENTIFY ";      // D10: dedup (2 uses)
 const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
 const char S_NICK_CMD[] = "NICK";                 // D10: dedup (2 uses)
 const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
+#ifndef SPECTALK_SPECTRANEXT
 const char S_AT_CMD[] = "AT";
+#endif
 const char S_JOIN_CMD[] = "JOIN";
 const char S_ANYKEY[] = "ANY KEY TO EXIT";
 // S_NO_ESXDOS removed — esxDOS is now required (fatal halt at startup)
 const char S_PART_CMD[] = "PART";                    // D19: dedup (2 uses, UART - no BPE)
+#ifndef SPECTALK_SPECTRANEXT
 const char S_TCP[] = "TCP";                          // D19: dedup (2 uses, UART - no BPE)
+#endif
 const char S_AUTOAWAY[] = "Auto-away";            // D11: dedup (5 uses)
 // OPT-SHRINK-S1/S2/S3: cross-module string dedup
 const char S_ALREADY[] = "Already in ";           // S2: dedup (4 uses)
@@ -138,7 +142,6 @@ const char S_QUIT_SUFFIX[] = " quit";
 const char S_SP_LBRACKET[] = " [";
 const char S_CHANNEL_WORD[] = "channel";
 const char S_CLOSED_SP[] = "Closed ";
-const char S_USAGE_NOTICE[] = "notice nick message";
 
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
@@ -276,13 +279,6 @@ void clear_main(void)
     channel_context_pending = 0;
 }
 
-static void overlay_exit_maybe_discard(void)
-{
-    uint8_t discard = (rx_pos != 0) || rx_overflow;
-    overlay_exit_full();
-    if (discard) rx_overflow = 1;
-}
-
 static void about_keepalive_rebaseline(void)
 {
     server_silence_frames = 0;
@@ -409,8 +405,10 @@ char irc_server[IRC_SERVER_SIZE];
 char irc_port[IRC_PORT_SIZE] = "6667";
 char irc_nick[IRC_NICK_SIZE];
 char irc_pass[IRC_PASS_SIZE];
-char nickserv_pass[IRC_PASS_SIZE];
-char nickserv_nick[IRC_NICK_SIZE];
+char nickserv_pass[AUTH_COMMAND_SIZE];
+char nickserv_nick[AUTH_SERVICE_SIZE];
+uint8_t auth_mode;
+uint8_t auth_profile;
 uint8_t autoconnect;
 uint8_t autojoin;
 uint8_t autojoin_defer_flags;
@@ -959,7 +957,7 @@ uint8_t sntp_queried;            // Flag: valid time received (stop retrying)
 
 // Frame-accurate ticker using system variable FRAMES (23672)
 uint8_t last_frames_lo;          // Last read of FRAMES low byte
-uint16_t tick_accum;             // Frame accumulator (0-49 -> 1 second)
+uint16_t tick_accum;             // Frames; native Next uses 1/64-frame units
 
 // SCREEN STATE
 uint8_t main_line = MAIN_START;
@@ -1756,6 +1754,7 @@ uint8_t debounce_zero;
 // read_key is implemented in spectalk_asm.asm for size optimization
 
 
+#ifndef SPECTALK_SPECTRANEXT
 void uart_send_crlf(void) __z88dk_fastcall
 {
     ay_uart_send('\r');
@@ -1767,6 +1766,7 @@ void uart_send_line(const char *s) __z88dk_fastcall
     uart_send_string(s);
     uart_send_crlf();
 }
+#endif
 
 // Classic clock acquisition lives in clock_classic.c.
 
@@ -1779,6 +1779,7 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     rx_pos = 0;
     
     while (frames < max_frames) {
+        if (uart_tx_failed) return 0;
         frame_wait_drain();
         
         if (in_inkey() == KEY_BREAK) return 0;  // BREAK = cancel
@@ -1804,6 +1805,8 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     return 0;
 }
 
+#ifndef SPECTALK_SPECTRANEXT
+// Classic/native Next ESP AT transport; Spectranext uses ROM sockets.
 // Wait for a single prompt character, capturing received data into rx_line.
 // On timeout, rx_line contains what was received (NUL-terminated) for inspection.
 uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_callee
@@ -1813,6 +1816,7 @@ uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_cal
     uint8_t wp = 0;
 
     while (frames < max_frames) {
+        if (uart_tx_failed) return 0;
         frame_wait_drain();
 
         if (in_inkey() == KEY_BREAK) { rx_line[0] = '\0'; return 0; }
@@ -1848,6 +1852,12 @@ static void esp_hard_cmd(const char *cmd) __z88dk_fastcall {
     rx_pos = 0;
 }
 
+#ifndef SPECTALK_NEXT
+// Session-only: the ZX-Uno-style UART holds one byte and raises RTS to the
+// ESP CTS input; without ESP CTS flow control no multi-byte reply survives.
+static const char S_AT_UART_CTS[] = "AT+UART_CUR=115200,8,1,0,2";
+#endif
+
 uint8_t esp_init(void)
 {
 #ifndef SPECTALK_NEXT
@@ -1857,6 +1867,8 @@ uint8_t esp_init(void)
     uint8_t wifi_probes = 0;
 #endif
     uint16_t frames;
+
+    if (uart_tx_failed) goto esp_init_fail;
 
 #ifdef SPECTALK_NEXT
 next_esp_start:
@@ -1911,6 +1923,7 @@ next_wifi_probe:
     
     // Timeout ~3 segundos
     for (frames = 0; frames < 150; frames++) {
+        if (uart_tx_failed) goto esp_init_fail;
         frame_wait_drain();
 #ifdef SPECTALK_NEXT
         if (in_inkey() == KEY_BREAK) goto esp_init_fail;
@@ -2015,18 +2028,24 @@ next_esp_reset:
     }
     wifi_probes = 12;
     goto next_esp_start;
+#else
+    // No OK: ESP CTS flow control may be off, which garbles every reply on
+    // this UART. Enable it for this session so the next attempt can pass;
+    // a working ESP never gets here, and flash UART_DEF is untouched.
+    esp_hard_cmd(S_AT_UART_CTS);
 #endif
 
 esp_init_fail:
     connection_state = STATE_DISCONNECTED;
     return 0;  // ESP not responding
 }
+#endif
 
 // Time synchronization function
 // OPT L2: sync_time() eliminada - inlined en call site
 
 // Force-close any active TCP connection.
-// CENTRALIZED session reset - ALL disconnection paths MUST use this
+// FIX ChatGPT audit: CENTRALIZED session reset - ALL disconnection paths MUST use this
 // to avoid forgotten flags. Do NOT reset state manually elsewhere.
 // In transparent mode, must exit with +++ first
 void force_disconnect(void)
@@ -2041,7 +2060,7 @@ void force_disconnect(void)
     
     net_close();
 
-    connection_state = STATE_WIFI_OK;
+    connection_state = uart_tx_failed ? STATE_DISCONNECTED : STATE_WIFI_OK;
     closed_reported = 0;
     
     server_silence_frames = 0;
@@ -2074,6 +2093,10 @@ void force_disconnect(void)
     last_pm_nick[0] = '\0';
     autojoin_defer_flags = 0;
     autojoin_ident_grace = 0;
+    if (auth_mode == AUTH_PENDING) {
+        auth_mode = AUTH_LEGACY;
+        nickserv_nick[0] = nickserv_pass[0] = 0;
+    }
     
     cancel_search_state();
     post_cancel_quiet = 0;
@@ -2106,12 +2129,13 @@ void irc_send_pong(const char *token) __z88dk_fastcall
 // irc_send_cmd1/cmd2: frameless ASM in spectalk_asm.asm
 
 // Envía "PRIVMSG <service> :IDENTIFY <pass>\r\n"
-// Uses nickserv_nick if detected, otherwise defaults to "NickServ"
+// Uses the configured nickserv_nick, otherwise defaults to "NickServ"
 void send_identify(const char *pass) __z88dk_fastcall
 {
+    if (auth_mode == AUTH_PENDING) return;
     net_send_string(S_PRIVMSG);
     net_send_string(nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV);
-    net_send_string(S_IDENTIFY_CMD);
+    net_send_string(auth_mode >= AUTH_LEARNED ? S_SP_COLON : S_IDENTIFY_CMD);
     net_send_line(pass);
 }
 
@@ -2336,8 +2360,6 @@ void notif_cancel_current(void)
 }
 
 // Notification slide-in state
-// notif_buf[64] declared in irc_handlers.c (SCU order: irc_handlers before spectalk)
-// Also aliased as names_friend_buf for NAMES friend accumulation (disjoint lifetimes)
 static uint8_t notif_slide_len;  // total chars to reveal
 static uint8_t notif_slide_pos;  // chars currently visible
 static uint8_t notif_attr;       // render attribute
@@ -2400,329 +2422,26 @@ void ui_usage(const char *a) __z88dk_fastcall
 // These are defined in spectalk_asm.asm
 // Try to open and read a config file into ring_buffer[]
 // ring_buffer is 2048 bytes and unused at startup (before UART activity)
-static uint16_t cfg_try_read(const char *path) __z88dk_fastcall {
-    uint16_t n;
-    
-    esx_fopen(path);
-    if (!esx_handle) return 0;
-    
-    esx_buf = (uint16_t)(char *)ring_buffer;
-    esx_count = RING_BUFFER_SIZE - 2;
-    esx_fread();
-    n = esx_result;
-    if (n > RING_BUFFER_SIZE - 2) n = RING_BUFFER_SIZE - 2;
-
-    esx_fclose();
-
-    ring_buffer[n] = '\0';
-    return n;
-}
-
-// Parse a decimal string into uint8_t
-// OPT H5: cfg_parse_num eliminada - usar (uint8_t)str_to_u16() directamente
-
 // Return pointer to next comma-separated token (NUL-terminates it).
 // Returns NULL when no more tokens. Skips leading spaces.
-static char *csv_next_tok(char **pp) {
-    char *tok = *pp;
-    char *comma;
-    if (!tok || !*tok) return NULL;
-    tok = skip_spaces(tok);
-    if (!*tok) return NULL;
-    comma = tok;
-    while (*comma && *comma != ',') comma++;
-    if (*comma) { *comma = '\0'; *pp = comma + 1; }
-    else *pp = NULL;
-    // Trim trailing spaces
-    { char *e = comma; while (e > tok && e[-1] == ' ') e--; *e = '\0'; }
-    return tok;
+#ifndef SPECTALK_SPECTRANEXT
+#include "config_apply.c"
+#endif
+
+#if defined(SPECTALK_SPECTRANEXT) || defined(SPECTALK_NEXT)
+uint8_t config_load(void)
+{
+    overlay_slot[0] = 0;
+#ifdef SPECTALK_NEXT
+    overlay_exec(4, 5);
+#else
+    overlay_exec(4, 4);
+#endif
+    return overlay_slot[0];
 }
-
-// Config helpers: reduce repeated st_copy_n/str_to_u16 patterns
-static const char *cfg_vp;  // cached val pointer for helpers
-
-static void cfg_s(char *dst, uint8_t sz) __z88dk_callee {
-    st_copy_n(dst, cfg_vp, sz);
-}
-
-static void cfg_b(uint8_t *dst) __z88dk_fastcall {
-    *dst = (uint8_t)str_to_u16(cfg_vp) & 1;
-}
-
-enum {
-    CFGK_NICK, CFGK_NKPASS, CFGK_NCOLOR, CFGK_NICKSERV,
-    CFGK_SERVER, CFGK_PORT, CFGK_PASS, CFGK_THEME,
-    CFGK_AUTOJOIN, CFGK_AUTOCONN, CFGK_AUTOAWAY,
-    CFGK_FRIENDS, CFGK_IGNORES, CFGK_CHANNELS, CFGK_COUNTSYNC,
-    CFGK_BEEP, CFGK_CLICK, CFGK_TRAFFIC, CFGK_TS,
-    CFGK_TZ, CFGK_TZLAST, CFGK_DIVIDER, CFGK_NOTIF
-};
-
-static uint8_t cfg_key_id(const char *key) __z88dk_fastcall ST_NAKED {
-    (void)key;
-    __asm
-    push ix
-    ld ix,cfg_key_table
-    ld b,23
-    ld c,0                   ; C = current ID
-cfg_ki_next:
-    push hl
-    ld e,(ix+0)
-    ld d,(ix+1)
-cfg_ki_cmp:
-    ld a,(hl)
-    or a
-    jr z,cfg_ki_end
-    ld a,(de)
-    cp (hl)
-    jr nz,cfg_ki_no
-    inc hl
-    inc de
-    jr cfg_ki_cmp
-cfg_ki_end:
-    ld a,(de)
-    cp '='
-    jr z,cfg_ki_found
-cfg_ki_no:
-    pop hl
-    inc ix
-    inc ix
-    inc c
-    djnz cfg_ki_next
-    ld l,255
-    pop ix
-    ret
-cfg_ki_found:
-    pop hl
-    ld l,c
-    pop ix
-    ret
-cfg_key_table:
-    defw _K_NICK, _K_NKPASS, _K_NCOLOR, _K_NICKSERV
-    defw _K_SERVER, _K_PORT, _K_PASS, _K_THEME
-    defw _K_AUTOJOIN, _K_AUTOCONN, _K_AUTOAWAY
-    defw _K_FRIENDS, _K_IGNORES, _K_CHANNELS, _K_COUNTSYNC
-    defw _K_BEEP, _K_CLICK, _K_TRAFFIC, _K_TS
-    defw _K_TZ, _K_TZLAST, _K_DIVIDER, _K_NOTIF
-    __endasm;
-}
-
-static void cfg_tz_apply(char *key) __z88dk_fastcall ST_NAKED {
-    (void)key;
-    __asm
-    inc hl
-    inc hl
-    ld a, (hl)
-    cp 'l'
-    jr z, cfg_tza_last
-
-    ld hl, (_cfg_vp)
-    ld a, (hl)
-    cp 'r'
-    jr nz, cfg_tza_num
-    inc hl
-    ld a, (hl)
-    cp 't'
-    jr nz, cfg_tza_num
-    ld a, TZ_RTC
-    ld (_sntp_tz), a
-    ret
-
-cfg_tza_num:
-    ld hl, (_cfg_vp)
-    call cfg_tza_parse
-    cp TZ_RTC
-    ret z
-    ld (_sntp_tz), a
-    ld (_sntp_tz_last), a
-    ret
-
-cfg_tza_last:
-    ld hl, (_cfg_vp)
-    call cfg_tza_parse
-    cp TZ_RTC
-    ret z
-    ld (_sntp_tz_last), a
-    ret
-
-cfg_tza_parse:
-    ld a, (hl)
-    cp '+'
-    jr nz, cfg_tza_sign
-    inc hl
-cfg_tza_sign:
-    ld a, (hl)
-    cp '-'
-    jr nz, cfg_tza_pos
-    inc hl
-    call _str_to_u16
-    ld a, h
-    or a
-    jr nz, cfg_tza_bad
-    ld a, l
-    cp 13
-    jr nc, cfg_tza_bad
-    neg
-    ret
-cfg_tza_pos:
-    call _str_to_u16
-    ld a, h
-    or a
-    jr nz, cfg_tza_bad
-    ld a, l
-    cp 13
-    jr nc, cfg_tza_bad
-    ret
-cfg_tza_bad:
-    ld a, TZ_RTC
-    ret
-    __endasm;
-}
-
-// Apply a key=value pair
-static void cfg_apply(char *key, char *val) __z88dk_callee {
-    cfg_vp = val;
-    switch (cfg_key_id(key)) {
-        case CFGK_NICK: cfg_s(irc_nick, IRC_NICK_SIZE); break;
-        case CFGK_NKPASS: cfg_s(nickserv_pass, IRC_PASS_SIZE); break;
-        case CFGK_NCOLOR: cfg_b(&nick_color_mode); break;
-        case CFGK_NICKSERV: cfg_s(nickserv_nick, IRC_NICK_SIZE); break;
-        case CFGK_SERVER: cfg_s(irc_server, IRC_SERVER_SIZE); break;
-        case CFGK_PORT: cfg_s(irc_port, IRC_PORT_SIZE); break;
-        case CFGK_PASS: cfg_s(irc_pass, IRC_PASS_SIZE); break;
-        case CFGK_THEME: {
-            uint8_t v = (uint8_t)str_to_u16(val);
-            if ((uint8_t)(v - 1) <= 2) current_theme = v;
-            break;
-        }
-        case CFGK_AUTOJOIN:
-            cfg_b(&autojoin);
-            break;
-        case CFGK_AUTOCONN:
-            autoconnect = (uint8_t)str_to_u16(val) & 1;
-            break;
-        case CFGK_AUTOAWAY: {
-            uint8_t v = (uint8_t)str_to_u16(val);
-            if (v <= 60) autoaway_minutes = v;
-            break;
-        }
-        case CFGK_FRIENDS: {
-            uint8_t idx = 0;
-            char *tok, *p = val;
-            while (idx < MAX_FRIENDS && (tok = csv_next_tok(&p)) != NULL)
-                st_copy_n(friend_nicks[idx++], tok, IRC_NICK_SIZE);
-            friend_count = idx;
-            break;
-        }
-        case CFGK_IGNORES: {
-            char *tok, *p = val;
-            while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
-                add_ignore(tok);
-            break;
-        }
-        case CFGK_CHANNELS:
-            cfg_s(autojoin_channels, SEARCH_PATTERN_SIZE);
-            cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
-            break;
-        case CFGK_COUNTSYNC: cfg_b(&count_sync_enabled); break;
-        case CFGK_BEEP: cfg_b(&beep_enabled); break;
-        case CFGK_CLICK: cfg_b(&keyclick_enabled); break;
-        case CFGK_TRAFFIC: cfg_b(&show_traffic); break;
-        case CFGK_TS: {
-            uint8_t v = (uint8_t)str_to_u16(val);
-            show_timestamps = (v > 2) ? 1 : v;
-            break;
-        }
-        case CFGK_TZ:
-        case CFGK_TZLAST:
-            cfg_tz_apply(key);
-            break;
-        case CFGK_DIVIDER: cfg_b(&show_channel_separators); break;
-        case CFGK_NOTIF: cfg_b(&notif_enabled); break;
-    }
-}
-
-// Parse the config buffer (ring_buffer[]) line by line
-// SAFETY-M3: depends on ring_buffer[] being NUL-terminated by cfg_try_read.
-// Max read = RING_BUFFER_SIZE-2 = 2046 bytes, NUL at ring_buffer[n].
-static void cfg_parse_buf(void) {
-    char *p = (char *)ring_buffer;
-    char *key, *val, *eol;
-    
-    while (*p) {
-        // Skip whitespace and blank lines
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '\0') break;
-        
-        // Skip comments
-        if (*p == ';' || *p == '#') {
-            while (*p && *p != '\n' && *p != '\r') p++;
-            if (*p == '\r') p++;
-            if (*p == '\n') p++;
-            continue;
-        }
-        
-        // Skip empty lines  
-        if (*p == '\n' || *p == '\r') {
-            if (*p == '\r') p++;
-            if (*p == '\n') p++;
-            continue;
-        }
-        
-        // Found start of key
-        key = p;
-        
-        // Find '=' or ':'
-        while (*p && *p != '=' && *p != ':' && *p != '\n' && *p != '\r') p++;
-        if (*p != '=' && *p != ':') {
-            // No separator found, skip rest of line
-            while (*p && *p != '\n' && *p != '\r') p++;
-            if (*p == '\r') p++;
-            if (*p == '\n') p++;
-            continue;
-        }
-        
-        *p = '\0';  // Terminate key
-        // Trim trailing whitespace in key
-        {
-            char *t = p;
-            while (t > key && (t[-1] == ' ' || t[-1] == '\t')) *--t = '\0';
-        }
-        p++;
-        // Skip leading whitespace before value
-        while (*p == ' ' || *p == '\t') p++;
-        val = p;
-        
-        // Find end of value
-        while (*p && *p != '\n' && *p != '\r') p++;
-        eol = p;
-        if (*p == '\r') p++;
-        if (*p == '\n') p++;
-        *eol = '\0';  // Terminate value
-        // Trim trailing whitespace in value
-        {
-            char *t = eol;
-            while (t > val && (t[-1] == ' ' || t[-1] == '\t')) *--t = '\0';
-        }
-        
-        // Apply the key=value pair
-        cfg_apply(key, val);
-    }
-}
-
-uint8_t config_load(void) {
-    uint16_t n;
-
-    if (!has_esxdos) return 0;
-
-    n = cfg_try_read(K_CFG_PRI);
-    if (!n) n = cfg_try_read(K_CFG_ALT);
-    if (!n) return 0;
-
-    cfg_parse_buf();
-    return 1;
-}
-
+#else
+#include "config_load.c"
+#endif
 
 // MAIN FUNCTION
 
@@ -2746,10 +2465,12 @@ void main(void)
     // Load font + themes + BPE dict from SPECTALK.DAT
     {
         extern uint8_t font_lut[];
-#ifdef SPECTALK_NEXT
+#if defined(SPECTALK_NEXT) || defined(SPECTALK_SPECTRANEXT)
         dat_open();
 #else
         esx_fopen(K_DAT);
+#endif
+#ifndef SPECTALK_NEXT
         if (!esx_handle) fatal_msg("DAT NOT FOUND!");
 #endif
         esx_buf = (uint16_t)font_lut;
@@ -2761,6 +2482,7 @@ void main(void)
         esx_fclose();
 #endif
         if (esx_result < 373) fatal_msg("DAT TRUNCATED!");
+        if (!bpe_validate()) fatal_msg("DAT CORRUPT!");
     }
 
     cfg_ok = config_load();  // Load settings before theme/screen init
@@ -2778,6 +2500,8 @@ void main(void)
     main_print(S_APPDESC);
     main_print(S_COPYRIGHT);
     main_hline();
+
+    bookmark_startup();
 
     // --- Initialization ---
     {
@@ -2861,15 +2585,28 @@ void main(void)
         tick_accum = 0;
 
         while (1) {
-            frame_wait(); // 50 Hz Sync
+            frame_wait(); // Sync to the active video cadence
+#ifndef SPECTALK_SPECTRANEXT
+            if (uart_tx_failed == 1) {
+                net_disconnect();
+                uart_tx_failed = 2;
+                ui_err("UART TX failed: reset ESP and restart");
+                draw_status_bar();
+            }
+#endif
             
             // Read system FRAMES (23672) low byte and compute elapsed frames.
-            // This correctly accounts for frames lost during long processing.
+            // Counts serviced ROM ticks; interrupts masked for a whole frame
+            // cannot be recovered from FRAMES.
             {
             uint8_t now_lo = *FRAMES_ADDR;
             uint8_t elapsed = now_lo - last_frames_lo;  // wraps correctly (uint8)
             last_frames_lo = now_lo;
+#ifdef SPECTALK_NEXT
+            tick_accum += (uint16_t)elapsed << 6;
+#else
             tick_accum += elapsed;
+#endif
             // Post-cancel quiet window (suppresses h_default_cmd garbage from
             // residuos de lista cancelada). Decremento independiente de ticks.
             if (post_cancel_quiet) {
@@ -2909,8 +2646,14 @@ void main(void)
                 }
             }
             }
-            while (tick_accum >= 50) {
-                tick_accum -= 50;
+            {
+#ifdef SPECTALK_NEXT
+            uint16_t second_ticks = next_clock_second();
+#else
+#define second_ticks 50
+#endif
+            while (tick_accum >= second_ticks) {
+                tick_accum -= second_ticks;
                 time_second++;
 
                 // Away auto-reply global cooldown (1 tick per second)
@@ -2945,6 +2688,10 @@ void main(void)
                 }
             }
             
+            }
+#ifndef SPECTALK_NEXT
+#undef second_ticks
+#endif
             // 1. TAREAS DE BAJA FRECUENCIA
             clock_init();  // self-guarded: no-op if RTC, already sent, or no WiFi
             if (clock_setup_state || names_pending) {
@@ -3137,7 +2884,7 @@ void main(void)
                     c = 0;
                 // Config overlay: S key triggers save + refresh
                 } else if (overlay_mode == OVERLAY_CONFIG && config_dirty && (c == 's' || c == 'S')) {
-                    overlay_exit_maybe_discard();
+                    overlay_exit_full();
                     cmd_save(NULL);
                     // Re-enter config overlay to show updated state
                     overlay_mode = OVERLAY_CONFIG;
@@ -3153,18 +2900,18 @@ void main(void)
                         overlay_call(1);
                         about_keepalive_rebaseline();
                     }
-                    overlay_exit_maybe_discard();
+                    overlay_exit_full();
                 } else if (c) {
                     // Help: paginated — advance page
                     help_page++;
                     sw_timeout = 0; /* W14: reset timeout on keypress */
                     help_render_page();
                     if (!overlay_mode) {
-                        overlay_exit_maybe_discard();
+                        overlay_exit_full();
                     }
                 } else if (overlay_mode == OVERLAY_HELP && ++sw_timeout >= HELP_TIMEOUT_FRAMES) {
                     /* W14: auto-close help after ~90s to prevent PING timeout */
-                    overlay_exit_maybe_discard();
+                    overlay_exit_full();
                     continue;
                 } else if (overlay_mode == OVERLAY_ABOUT && !c) {
                     /* Frame-counter gate: tick fires when ≥2 ROM FRAMES have
@@ -3342,6 +3089,7 @@ void main(void)
                 }
                 count_sync_tick();
             }
+            auth_save_poll();
         }
     }
 }

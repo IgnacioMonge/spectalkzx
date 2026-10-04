@@ -186,6 +186,39 @@ _reset_rx_state:
     ld (_rb_tail), hl
     ret
 
+; A transport gap invalidates every queued byte, not the oldest queued line.
+; Clobbers AF/HL only. The next accepted line must start after a later LF.
+PUBLIC _rx_discard_pending
+_rx_discard_pending:
+    ld hl, (_rb_head)
+    ld (_rb_tail), hl
+    ld a, 1
+    ld (_rx_overflow), a
+    jp _rx_pos_reset
+
+; Release overlay scratch without forgetting an interrupted receive line.
+; Native Next overlays never overwrite the ring; retain its queued bytes.
+PUBLIC _overlay_rx_release
+_overlay_rx_release:
+    ld hl, (_rx_pos)
+    ld a, h
+    or l
+    ld hl, _rx_overflow
+    or (hl)
+IFNDEF SPECTALK_NEXT
+    ld hl, (_rb_head)
+    ld de, (_rb_tail)
+    ld (_rb_tail), hl
+    or a
+    sbc hl, de
+    or h
+    or l
+ENDIF
+    ret z
+    ld a, 1
+    ld (_rx_overflow), a
+    jp _rx_pos_reset
+
 ; -----------------------------------------------------------------------------
 ; check_status_irc: check_status(LVL_IRC=2) ? copt fuses ld l,2 / call
 ; Saves 2 bytes per site (13 sites)
@@ -231,16 +264,12 @@ EXTERN _clear_main
 EXTERN _notif_clear
 PUBLIC _overlay_exit_full
 _overlay_exit_full:
+    call _overlay_rx_release
     xor a
     ld (_overlay_mode), a
     ld l, a
     ld h, a
     ld (_notif_timeout), hl
-    ; W01: discard ring buffer content (overlay binary, not IRC data)
-    ld (_rx_pos), hl
-    ld (_rx_overflow), a
-    ld hl, (_rb_head)
-    ld (_rb_tail), hl
     inc a                       ; a = 1
     ld (_cursor_visible), a
     call _clear_main

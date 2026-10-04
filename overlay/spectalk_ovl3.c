@@ -142,5 +142,5 @@ void whatsnew_render(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    reset_rx_state();
+    overlay_rx_release();
 }

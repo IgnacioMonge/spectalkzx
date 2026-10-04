@@ -1,0 +1,25 @@
+{
+  "resource": "SpecTalkZX direct HTTPS",
+  "version": {
+    "source": "../../release/version.txt"
+  },
+  "minimum_firmware": "0.9-6fc153a3",
+  "files": [
+    {
+      "source": "../../build/spectranext-boot.zx",
+      "name": "boot.zx"
+    },
+    {
+      "source": "../../build/SpecTalkZX-direct.tap",
+      "name": "SPECTALK.TAP"
+    },
+    {
+      "source": "../../build/SPECTALK.OVL",
+      "name": "SPECTALK.OVL"
+    },
+    {
+      "source": "../../build/SPECTALK.DAT",
+      "name": "SPECTALK.DAT"
+    }
+  ]
+}

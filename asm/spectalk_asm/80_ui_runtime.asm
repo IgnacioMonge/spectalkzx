@@ -141,12 +141,12 @@ EXTERN _net_send_string
 PUBLIC _puts_colon_sp
 PUBLIC _net_sp_colon
 PUBLIC _net_privmsg
-EXTERN _SB_COLON_SP
+EXTERN _S_COLON_SP
 EXTERN _S_SP_COLON
 EXTERN _S_PRIVMSG
 
 _puts_colon_sp:
-    ld hl, _SB_COLON_SP
+    ld hl, _S_COLON_SP
     jp _main_puts
 _net_sp_colon:
     ld hl, _S_SP_COLON
@@ -468,6 +468,16 @@ _input_delete_word:
 PUBLIC _fatal_msg
 _fatal_msg:
     ; HL = message string (fastcall). Never returns.
+IFDEF SPECTALK_SPECTRANEXT
+    push hl
+    call _resources_release
+    ld a, l
+    or a
+    pop hl
+    jr z, fm_resources_closed
+    ld hl, resources_close_error
+fm_resources_closed:
+ENDIF
     ; Set border red
     ld a, 2
     out (254), a
@@ -930,24 +940,36 @@ frame_wait_plain:
     pop iy              ; restore IY for SDCC
     ret
 
-; Paged targets let _frame_wait expose the complete ROM, then drain resident RX.
-; Classic polls uartRead/_rb_push directly while IM1 advances FRAMES; the fast
-; drain cannot be used there because its EXX shadow state is not IRQ-safe.
+; Resident UART targets poll throughout the frame: 32 bytes after HALT cannot
+; keep up with 115200 baud during IRC registration bursts. Use the scalar
+; reader under IM1; the fast drain owns shadow registers and requires DI.
 _frame_wait_drain:
 IFDEF SPECTALK_SPECTRANEXT
     call _frame_wait
     jp _net_pump_rx
 ELSE
 IFDEF SPECTALK_NEXT
+    ; Keep mapped overlays on their existing ROM suspend/restore path.
+    ld a, (_next_overlay_active)
+    or a
+    jr z, fwd_poll
     call _frame_wait
     jp _net_pump_rx
-ELSE
+ENDIF
+fwd_poll:
     push iy
     ld iy, 0x5C3A
     ld a, (0x5C78)      ; FRAMES low byte
     push af             ; keep frame snapshot across UART drain clobbers
     ei
 fwd_loop:
+    ld hl, (_rb_head)
+    inc hl
+    res 3, h            ; future head
+    ld de, (_rb_tail)
+    or a
+    sbc hl, de
+    jr z, fwd_check_frame ; ring full: leave the byte in the UART
     call uartRead
     jr nc, fwd_check_frame
     ld l, a
@@ -962,7 +984,6 @@ fwd_check_frame:
     di
     pop iy
     ret
-ENDIF
 ENDIF
 
 ; =============================================================================

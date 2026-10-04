@@ -323,8 +323,8 @@
 	EXTERN _err_print
 %0jp%1_err_print
 
-;; OPT-COPT-29: ld hl,_SB_COLON_SP + call _main_puts → call _puts_colon_sp (6→3, 6 sites)
-%0ld%1hl,_SB_COLON_SP
+;; OPT-COPT-29: ld hl,_S_COLON_SP + call _main_puts → call _puts_colon_sp (6→3, 6 sites)
+%0ld%1hl,_S_COLON_SP
 %0call%1_main_puts
 =
 	EXTERN _puts_colon_sp

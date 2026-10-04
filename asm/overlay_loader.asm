@@ -26,6 +26,7 @@ EXTERN ___sdcc_enter_ix
 
 IFDEF SPECTALK_SPECTRANEXT
 EXTERN _spxn_rom_held
+EXTERN _ovl_open
 PUBLIC _spxn_overlay_page
 PUBLIC _spxn_page_ready
 
@@ -42,6 +43,10 @@ spxn_call_scratch:  defs 2
 SECTION code_user
 ELSE
 OVL_CODE_BASE       EQU _ring_buffer
+SECTION bss_user
+PUBLIC _overlay_exec_active
+_overlay_exec_active: defs 1
+SECTION code_user
 ENDIF
 
 OVL_ATLAS_HEADER_LEN EQU 64
@@ -58,8 +63,7 @@ _overlay_exec:
     call ___sdcc_enter_ix
     call _net_pump_rx
 
-    ld hl, ovl_filename
-    call _esx_fopen
+    call _ovl_open
     ld a, (_esx_handle)
     or a
     jr z, ovl_spxn_exec_fail
@@ -111,6 +115,8 @@ ovl_spxn_exec_fail_close:
     call _esx_fclose
     call _input_cache_invalidate
 ovl_spxn_exec_fail:
+    ld hl, 0
+    ld (ovl_loaded_len), hl
     pop ix
     pop de
     pop bc
@@ -130,7 +136,7 @@ _overlay_exec:
     call _esx_fopen
     ld a, (_esx_handle)
     or a
-    jr z, ovl_fail
+    jp z, ovl_fail
 
     ; Read atlas header into ring_buffer.
     ld hl, _ring_buffer
@@ -168,16 +174,19 @@ ovl_read:
     jr nz, ovl_fail
 ovl_read_ok:
 
-    ; W7 fix: validate entry_id < entry_count
+    ; Validate entry_id and use a 16-bit table index (255 entries fit).
     ld a, (ix+5)        ; entry_id
     ld hl, _ring_buffer
     cp (hl)             ; compare entry_id vs entry_count (low byte)
     jr nc, ovl_fail     ; entry_id >= entry_count -> invalid
 
     ; Look up entry point: ring_buffer[2 + entry_id*2]
-    add a, a            ; *2
-    add a, 2
-    ld l, a             ; H already high(_ring_buffer) from entry_count check
+    ld e, a
+    ld d, 0
+    sla e
+    rl d
+    ld hl, _ring_buffer + 2
+    add hl, de
     ld e, (hl)
     inc hl
     ld d, (hl)          ; DE = absolute entry address
@@ -211,13 +220,15 @@ ovl_write_rx_overflow:
     pop de              ; DE = ret addr (caller's return)
     pop bc              ; remove 2 bytes of params (callee cleanup)
     push de             ; push caller's return address back
-    jp (hl)             ; jump to overlay — its ret goes back to caller
+    jp ovl_enter
 
 ovl_fail_close:
     call _esx_fclose
     jr ovl_fail
 
 ovl_fail:
+    ld hl, 0
+    ld (ovl_loaded_len), hl
     pop ix
     pop de              ; ret addr
     pop bc              ; remove 2 bytes of params (callee cleanup)
@@ -251,8 +262,22 @@ ovl_atlas_select:
     cp 1
     jr nz, ovl_atlas_bad
     inc hl
+    ld a, (hl)          ; overlay_count
+    or a
+    jr z, ovl_atlas_bad
+    cp 15               ; 8 + count*4 must fit the 64-byte header
+    jr nc, ovl_atlas_bad
+    ld c, a
+    inc hl
+    ld a, (hl)
+    cp OVL_ATLAS_HEADER_LEN
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    or a
+    jr nz, ovl_atlas_bad
     ld a, (ix+4)        ; ovl_id
-    cp (hl)             ; ovl_id < overlay_count?
+    cp c                ; ovl_id < overlay_count?
     jr nc, ovl_atlas_bad
 
     add a, a
@@ -283,6 +308,11 @@ ovl_atlas_select:
     jr nz, ovl_atlas_bad
 ovl_atlas_size_ok:
     ex de, hl           ; HL = payload offset
+    ld de, OVL_ATLAS_HEADER_LEN
+    or a
+    sbc hl, de
+    jr c, ovl_atlas_bad ; payload must follow the complete header/table
+    add hl, de
     or a
     ret
 
@@ -305,9 +335,12 @@ ELSE
     ld      hl, _ring_buffer
     cp      (hl)             ; entry_id < entry_count?
     ret     nc               ; invalid/corrupt table -> ignore safely
-    add     a, a             ; *2 (entry table is word-indexed)
-    add     a, 2
-    ld      l, a             ; H already high(_ring_buffer) from entry_count check
+    ld      e, a
+    ld      d, 0
+    sla     e
+    rl      d
+    ld      hl, _ring_buffer + 2
+    add     hl, de
     ld      e, (hl)
     inc     hl
     ld      d, (hl)          ; DE = entry function address
@@ -315,11 +348,25 @@ ELSE
     call    ovl_entry_in_loaded
     ret     c
     ex      de, hl
-    jp      (hl)             ; jump — overlay's ret returns to caller
+    jp      ovl_enter
+ENDIF
+
+IFNDEF SPECTALK_SPECTRANEXT
+; Keep RX producers away from the code until its final RET.
+ovl_enter:
+    ld a, 1
+    ld (_overlay_exec_active), a
+    ld de, ovl_return
+    push de
+    jp (hl)
+ovl_return:
+    xor a
+    ld (_overlay_exec_active), a
+    ret
 ENDIF
 
 ; DE = candidate entry address. Carry set means outside the loaded body.
-; Fixed-format overlays initialize this to 2048; atlas loading will narrow it.
+; Zero until an atlas load validates and selects a payload.
 ovl_entry_in_loaded:
     push    de
     ex      de, hl
@@ -327,6 +374,20 @@ ovl_entry_in_loaded:
     or      a
     sbc     hl, de           ; HL = entry - ring_buffer
     jr      c, ovl_entry_bad
+    ld      a, (OVL_CODE_BASE + 1)
+    or      a
+    jr      nz, ovl_entry_bad ; entry count is a word, limited to 255
+    ld      a, (OVL_CODE_BASE)
+    ld      e, a
+    ld      d, 0
+    sla     e
+    rl      d
+    inc     de
+    inc     de               ; DE = complete entry-table length
+    or      a
+    sbc     hl, de
+    jr      c, ovl_entry_bad ; entry points into header/table
+    add     hl, de
     ld      de, (ovl_loaded_len)
     or      a
     sbc     hl, de
@@ -341,7 +402,7 @@ ovl_entry_bad:
     ret
 
 ovl_loaded_len:
-    DEFW    2048
+    DEFW    0
 IFDEF SPECTALK_SPECTRANEXT
 PUBLIC _spxn_overlay_len
 DEFC _spxn_overlay_len = ovl_loaded_len
@@ -419,9 +480,11 @@ ovl_spxn_pageout:
     ret
 ENDIF
 
+IFNDEF SPECTALK_SPECTRANEXT
 ovl_filename:
     DEFM "SPECTALK.OVL"
     DEFB 0
+ENDIF
 
 ovl_err_msg:
     DEFM "Overlay load failed"

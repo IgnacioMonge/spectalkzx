@@ -67,7 +67,7 @@ def main():
     for snippet in (
         "xor a ld (_connection_state), a",
         "ld (_sntp_init_sent), a",
-        "ld (_sntp_waiting), a inc a ld (_status_bar_dirty), a",
+        "ld (_sntp_waiting), a inc a ld (_uart_tx_failed), a ld (_status_bar_dirty), a",
         "jp _reset_rx_state",
     ):
         assert words(snippet) in fatal

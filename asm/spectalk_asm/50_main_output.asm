@@ -43,6 +43,8 @@ mp_scan:
     ld a, (de)
     or a
     jr z, mp_fast
+    cp 10
+    jr z, mp_bpe_slow           ; embedded LF needs main_puts newline handling
     add a, a
     jr c, mp_bpe_slow
     inc de
@@ -57,8 +59,9 @@ mp_bpe_slow:
 mp_slow:
     call _main_puts
 mp_wrap_reset:
-    xor a
+    ld a, 0                     ; preserve puts/cut-end Z while clearing indent
     ld (_wrap_indent), a
+    ret nz                      ; cancelled; Z also covers a normal full row
     jp _main_newline
 
 mp_fast:
@@ -310,6 +313,7 @@ msi_mask_set:
 ; void main_print_wrapped_ram(char *s) __z88dk_fastcall
 ; Wrap por palabras dentro del ancho disponible (64 - main_col).
 ; HL = string (RAM)  [MODIFICA temporalmente RAM insertando 0]
+; Input is one decoded IRC/input line, without embedded LF or BPE tokens.
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_wrapped_clean
 _main_print_wrapped_clean:
@@ -370,6 +374,11 @@ mpwr_scan:
 mpwr_scan_next:
     inc hl
     djnz mpwr_scan
+
+    ; A complete exact-width string needs no word-boundary cut.
+    ld a, (hl)
+    or a
+    jr z, mpwr_cut_end
 
     ; Alcanzados "avail" chars
     ld b, h
@@ -482,8 +491,8 @@ nrg_skip_spaces:
     ld a, (hl)
     or a
     jr z, nrg_end
-    cp ' '
-    jr nz, nrg_token
+    cp 33
+    jr nc, nrg_token
     inc hl
     jr nrg_skip_spaces
 
@@ -737,6 +746,7 @@ dws_cancel:
 ; void main_puts(const char *s) __z88dk_fastcall
 ; Imprime una cadena usando la versi?n optimizada de putc.
 ; HL = string
+; ASM result: Z=complete (including column 64), NZ=cancelled/suppressed.
 ; -----------------------------------------------------------------------------
 
 EXTERN _overlay_mode
@@ -935,6 +945,7 @@ puts_reload_nl:
     ld (_g_ps64_y), a
     ld a, (_current_attr)
     ld c, a
+    ld (_g_ps64_attr), a
     ld a, (_main_col)
     ld b, a
     bit 6, b
@@ -945,9 +956,12 @@ puts_reload_nl:
 ; set DE to dict entry (3 bytes: b1, b2, 0x00). Loop continues reading
 ; from dict. On null, pops continuation and resumes original string.
 puts_bpe_expand:
-    ; A = token (0x80-0xFF), DE = current string position
+    ; A = token, DE = current string position. Dictionary has 74 entries:
+    ; tokens 0x80..0xC9; higher bytes are invalid display input and are skipped.
     ; B = main_col, C = current_attr ? MUST be preserved!
     inc de                  ; advance past the token
+    cp 0xCA
+    jp nc, puts_opt_loop
     push bc                 ; save B=col, C=attr
     ; W8 fix: check rstack overflow before push (8 levels = 16 bytes)
     ld c, a                 ; save token while comparing fixed-page rsp low byte

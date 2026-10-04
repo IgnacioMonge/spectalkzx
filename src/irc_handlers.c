@@ -29,12 +29,9 @@ extern uint16_t last_cmd_id;
 // Must remain zero: parser initialization aliases all empty packet fields here.
 extern char pkt_empty[];
 
-// Friend accumulator for NAMES (353→366 batch notification)
-// OPT: Aliased onto notif_buf[64] (fixed at $5B80) —
-// lifetimes are disjoint: 353 accumulates friends, 366 consumes and fires
-// notify() which overwrites notif_buf.
-extern char notif_buf[];
-#define names_friend_buf notif_buf
+// Friend accumulator for one NAMES (353→366) batch notification.
+// It must survive unrelated notifications interleaved by the server.
+static char names_friend_buf[47];
 extern uint8_t names_friend_pos;
 
 // =============================================================================
@@ -299,8 +296,7 @@ static void session_autojoin_replay(void)
     if (autojoin && (c == '#' || c == '&')) {
         notify2("Autojoining ", autojoin_channels, ATTR_MSG_JOIN);
         irc_send_cmd1(S_JOIN_CMD, autojoin_channels);
-        autojoin_defer_flags = 0;
-        autojoin_ident_grace = 0;
+        autojoin_defer_flags &= AUTOJOIN_IDENT_SENT;
     }
 }
 
@@ -314,7 +310,7 @@ static void session_autojoin_try(void)
 static void session_autoidentify_done(void)
 {
     if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) {
-        autojoin_defer_flags &= (uint8_t)~(AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
+        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
         autojoin_ident_grace = 0;
         session_autojoin_try();
     }
@@ -408,6 +404,36 @@ is_ctcp_action_tail_key:
     __endasm;
 }
 
+static uint8_t auth_service_sender(void)
+{
+    char *at = strchr(nickserv_nick, '@');
+    uint8_t ok;
+    if (at) *at = 0;
+    ok = st_stricmp(pkt_usr, nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV) == 0;
+    if (at) *at = '@';
+    return ok;
+}
+
+static uint8_t auth_word_boundary(uint8_t c) __z88dk_fastcall
+{
+    return (uint8_t)((c | 32) - 'a') > 25;
+}
+
+static uint8_t auth_match(const char *needle) __z88dk_fastcall
+{
+    const char *hit = st_stristr(pkt_txt, needle);
+    return hit && (hit == pkt_txt || auth_word_boundary(hit[-1])) &&
+           auth_word_boundary(hit[st_strlen(needle)]);
+}
+
+static void auth_confirm(void)
+{
+    if (auth_mode == AUTH_PENDING) {
+        auth_mode = AUTH_SAVE;
+        config_dirty = 1;
+    }
+}
+
 static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
@@ -427,20 +453,29 @@ static void h_privmsg_notice(void)
     uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
     // PD2: inlined is_ident_success_notice — single caller
     uint8_t ident_ok = 0;
-    if (is_notice && (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)) {
-        if (st_stristr(pkt_txt, "identified") ||
-            st_stristr(pkt_txt, "logged in") ||
-            st_stristr(pkt_txt, "recognized"))
-            ident_ok = 1;
+    uint8_t auth_sender = is_notice && st_stricmp(target, irc_nick) == 0 && auth_service_sender();
+    if (auth_sender && !st_stristr(pkt_txt, "not ")) {
+        /* ponytail: known acknowledgements only; extend for verified service replies. */
+        static const char *const accepted[] = {
+            "now identified", "now logged in", "password accepted",
+            "authentication successful", "successfully identified"
+        };
+        uint8_t i;
+        for (i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+            if (auth_match(accepted[i])) {
+                ident_ok = 1;
+                auth_confirm();
+                break;
+            }
+        }
+        if (!ident_ok && st_stristr(pkt_txt, "already identified")) ident_ok = 1;
     }
+    if (ident_ok) session_autoidentify_done();
 
-    // Auto-IDENTIFY: detect "identify" in NOTICE from NickServ-like service
-    // Security (audit C02): validate sender before sending password
-    if (nickserv_pass[0] && is_notice && !IS_CHAN_PREFIX(target[0]) && st_stristr(pkt_txt, "identify")) {
-        uint8_t ok = nickserv_nick[0] ? (st_stricmp(pkt_usr, nickserv_nick) == 0)
-                                      : (st_stristr(pkt_usr, "Serv") != 0);
-        if (ok) {
-            if (!nickserv_nick[0]) st_copy_n(nickserv_nick, pkt_usr, IRC_NICK_SIZE);
+    // Only the configured service (default NickServ) may request the password.
+    if (nickserv_pass[0] && auth_mode == AUTH_LEGACY && !ident_ok && auth_sender &&
+        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT) && st_stristr(pkt_txt, "identify")) {
+        {
             send_identify(nickserv_pass);
             autojoin_defer_flags |= (AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
             autojoin_ident_grace = 0;
@@ -487,7 +522,6 @@ static void h_privmsg_notice(void)
 
                 current_attr = ATTR_MSG_TOPIC;
                 main_print(pkt_txt);
-                if (ident_ok) session_autoidentify_done();
                 return;
             }
         }
@@ -581,13 +615,12 @@ static void h_privmsg_notice(void)
     if (!IS_CHAN_PREFIX(target[0]) && !is_server) {
         if (st_stricmp(pkt_usr, S_NICKSERV) == 0 ||
             st_stricmp(pkt_usr, S_CHANSERV) == 0 ||
-            (nickserv_nick[0] && st_stricmp(pkt_usr, nickserv_nick) == 0)) {
+            auth_service_sender()) {
             current_attr = ATTR_MSG_NICK;
             main_puts2(pkt_usr, S_COLON_SP);
             current_attr = ATTR_MSG_TOPIC;
             if (ident_ok) {
                 main_print_wrapped_clean(pkt_txt);
-                session_autoidentify_done();
             } else {
                 deferred_wrap_start(pkt_txt);
             }
@@ -607,7 +640,6 @@ static void h_privmsg_notice(void)
             current_attr = ATTR_MSG_SERVER;
             main_print(pkt_txt);
         }
-        if (ident_ok) session_autoidentify_done();
         return;
     }
 
@@ -1060,11 +1092,9 @@ static void h_numeric_353(void)
     // Accumulate friends found in NAMES for batch notification on 366.
     // Overlay output is suppressed, so skip this CPU-heavy cosmetic pass there.
     // Skip entirely when no friends configured (avoids per-nick parse cost).
-    // AUDIT-L02 FIX: also skip while a previous notification is still sliding,
-    // since names_friend_buf is aliased to notif_buf and would corrupt the slide.
-    if (!overlay_mode && friend_count && !notif_timeout) {
+    if (!overlay_mode && friend_count) {
         char *p = pkt_txt;
-        if (names_friend_pos >= 64) names_friend_pos = 0;
+        if (names_friend_pos >= sizeof(names_friend_buf)) names_friend_pos = 0;
         while (*p) {
             char *ns;
             while (*p == '@' || *p == '+' || *p == '~' || *p == '%' || *p == '&') p++;
@@ -1073,13 +1103,16 @@ static void h_numeric_353(void)
             if (friend_initial_match(*ns) && p > ns) {
                 char sv = *p; *p = 0;
                 if (is_tracked_friend(ns)) {
-                    if (names_friend_pos > 0 && names_friend_pos < 46) {
-                        names_friend_buf[names_friend_pos++] = ',';
-                        names_friend_buf[names_friend_pos++] = ' ';
+                    if (!names_friend_pos ||
+                        names_friend_pos < sizeof(names_friend_buf) - 3) {
+                        if (names_friend_pos > 0) {
+                            names_friend_buf[names_friend_pos++] = ',';
+                            names_friend_buf[names_friend_pos++] = ' ';
+                        }
+                        while (*ns && names_friend_pos < sizeof(names_friend_buf) - 1)
+                            names_friend_buf[names_friend_pos++] = *ns++;
+                        names_friend_buf[names_friend_pos] = 0;
                     }
-                    while (*ns && names_friend_pos < 46)
-                        names_friend_buf[names_friend_pos++] = *ns++;
-                    names_friend_buf[names_friend_pos] = 0;
                 }
                 *p = sv;
             }
@@ -1128,7 +1161,7 @@ static void h_numeric_366(void)
     names_was_manual = 0;  // Reset flag
 
     // Batch friend notification (accumulated during 353 chunks)
-    if (names_friend_pos >= 64) names_friend_pos = 0;
+    if (names_friend_pos >= sizeof(names_friend_buf)) names_friend_pos = 0;
     if (names_friend_pos > 0) {
         if (!overlay_mode && !search_data_lost) {
             mention_beep();
@@ -1327,14 +1360,24 @@ static void h_numeric_1(void)
 
 static void h_logged_in(void)
 {
-    /* 900 can precede the visible NickServ acceptance NOTICE on some networks.
-       Keep autojoin gated until that service message has been printed. */
+    /* Learn from the server's explicit account acknowledgement. Legacy autojoin
+       still waits for the visible acceptance NOTICE after 900. */
+    if (st_stricmp(irc_param(0), irc_nick) == 0) {
+        auth_confirm();
+        if (auth_mode >= AUTH_LEARNED) session_autoidentify_done();
+    }
 }
 
 // End of MOTD / no MOTD: delayed autojoin, then friend ISON.
 static void h_motd_done(void)
 {
     autojoin_defer_flags |= AUTOJOIN_MOTD_DONE;
+    if (auth_mode >= AUTH_LEARNED && nickserv_pass[0] &&
+        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
+        send_identify(nickserv_pass);
+        autojoin_defer_flags |= AUTOJOIN_IDENT_SENT;
+        if (autojoin) autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+    }
     if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
         !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
         autojoin_ident_grace = AUTOJOIN_IDENT_GRACE_FRAMES;
@@ -1540,17 +1583,9 @@ static void h_pong(void)
     }
     status_bar_dirty = 1;       // Redraw indicator
     
-    // Borrar keepalive_ping_sent SOLO con PONG
+    // FIX ChatGPT audit: Borrar keepalive_ping_sent SOLO con PONG
     keepalive_ping_sent = 0;
     keepalive_timeout = 0;
-}
-
-// E2: Dispatcher por tercer carácter del comando
-// Hash 'KI' (0x4B49) cubre KICK y KILL, distinguimos por pkt_cmd[2]: 'C'=KICK, 'L'=KILL
-static void h_kick_kill(void)
-{
-    if (pkt_cmd[2] == 'C') h_kick();
-    else if (pkt_cmd[2] == 'L') h_kill();
 }
 
 typedef struct {
@@ -1558,12 +1593,106 @@ typedef struct {
     void (*fn)(void);
 } CmdEntry;
 
-static const CmdEntry CMD_TABLE[] = {
-    // PERF-01: Hot path primero (>80% del tráfico IRC)
-    { 0x5052, h_privmsg_notice }, // PR (PRIVMSG) - más frecuente
-    { 0x4E4F, h_privmsg_notice }, // NO (NOTICE)  - segundo más frecuente
-    { 0x5049, h_ping },           // PI (PING)    - keepalive frecuente
+// Exact case-insensitive text-command dispatch. Each record is a
+// high-bit-terminated command followed by its handler pointer.
+static void dispatch_text_cmd(void) ST_NAKED
+{
+    __asm
+    ld de,dtc_records
+dtc_scan:
+    ld a,(de)
+    or a
+    jr z,dtc_unknown
+    ld hl,(_pkt_cmd)
+dtc_match:
+    ld a,(de)
+    inc de
+    ld c,a
+    and 0x7f
+    ld b,a
+    ld a,(hl)
+    and 0xdf
+    cp b
+    jr nz,dtc_mismatch
+    bit 7,c
+    jr nz,dtc_end
+    inc hl
+    jr dtc_match
+dtc_mismatch:
+    bit 7,c
+    jr nz,dtc_skip_handler
+dtc_mismatch_skip:
+    ld a,(de)
+    inc de
+    add a,a
+    jr nc,dtc_mismatch_skip
+dtc_skip_handler:
+    inc de
+    inc de
+    jr dtc_scan
+dtc_end:
+    inc hl
+    ld a,(hl)
+    or a
+    jr nz,dtc_skip_handler
+    ld a,(_show_names_list)
+    or a
+    jr z,dtc_call
+    ld hl,(_pkt_cmd)
+    ld a,(hl)
+    cp 'P'
+    ret nz
+    inc hl
+    ld a,(hl)
+    cp 'I'                  ; PING
+    jr z,dtc_call
+    cp 'O'                  ; PONG
+    ret nz
+dtc_call:
+    ld a,(de)
+    inc de
+    ld l,a
+    ld a,(de)
+    ld h,a
+    jp (hl)
+dtc_unknown:
+    ld a,(_show_names_list)
+    or a
+    ret nz
+    jp _h_default_cmd
 
+dtc_records:
+    DEFB 'P','R','I','V','M','S','G'+128
+    DEFW _h_privmsg_notice
+    DEFB 'N','O','T','I','C','E'+128
+    DEFW _h_privmsg_notice
+    DEFB 'P','I','N','G'+128
+    DEFW _h_ping
+    DEFB 'P','O','N','G'+128
+    DEFW _h_pong
+    DEFB 'P','A','R','T'+128
+    DEFW _h_part
+    DEFB 'N','I','C','K'+128
+    DEFW _h_nick
+    DEFB 'J','O','I','N'+128
+    DEFW _h_join
+    DEFB 'Q','U','I','T'+128
+    DEFW _h_quit
+    DEFB 'K','I','C','K'+128
+    DEFW _h_kick
+    DEFB 'K','I','L','L'+128
+    DEFW _h_kill
+    DEFB 'M','O','D','E'+128
+    DEFW _h_mode
+    DEFB 'E','R','R','O','R'+128
+    DEFW _h_error
+    DEFB 'C','A','P'+128
+    DEFW _h_cap
+    DEFB 0
+    __endasm;
+}
+
+static const CmdEntry CMD_TABLE[] = {
     // Comandos Numéricos (0x0001 - 0x03E7)
     { 353, h_numeric_353 },
     { 366, h_numeric_366 },
@@ -1596,18 +1725,6 @@ static const CmdEntry CMD_TABLE[] = {
     { 473, h_join_error },
     { 474, h_join_error },
     { 477, h_join_error },
-
-    // Resto de comandos de texto (menos frecuentes)
-    { 0x504F, h_pong },           // PO (PONG)
-    { 0x5041, h_part },           // PA (PART)
-    { 0x4E49, h_nick },           // NI (NICK)
-    { 0x4A4F, h_join },           // JO (JOIN)
-    { 0x5155, h_quit },           // QU (QUIT)
-    { 0x4B49, h_kick_kill },      // KI (KICK/KILL)
-    { 0x4D4F, h_mode },           // MO (MODE)
-    { 0x4552, h_error },          // ER (ERROR)
-    { 0x4341, h_cap },            // CA (CAP)
-
     { 0,   NULL }
 };
 
@@ -1617,6 +1734,9 @@ static const CmdEntry CMD_TABLE[] = {
 
 void parse_irc_message(char *line) __z88dk_fastcall
 {
+    char *cmd_start, *params, *rest, *p;
+    const char *c;
+
     // Populate Globals directly (always initialize to safe values)
     pkt_usr = irc_server;
     pkt_par = pkt_empty;
@@ -1637,7 +1757,6 @@ void parse_irc_message(char *line) __z88dk_fastcall
     }
     if (!*line) return;
 
-    char *cmd_start;
     if (line[0] == ':') {
         pkt_usr = line + 1;
         cmd_start = split_prefix_nick(pkt_usr);
@@ -1649,13 +1768,12 @@ void parse_irc_message(char *line) __z88dk_fastcall
     pkt_cmd = cmd_start;
 
     {
-        char *params = split_head_param(cmd_start);
+        params = split_head_param(cmd_start);
         if (*params) {
             if (params[0] == ':') {
                 *params++ = 0;
                 pkt_txt = params;
             } else {
-                char *rest;
                 pkt_par = params;
                 rest = split_next_param(params);
                 irc_params[0] = pkt_par;
@@ -1665,7 +1783,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
                         *rest = 0;
                         pkt_txt = rest + 1;
                     } else {
-                        char *p = rest;
+                        p = rest;
                         while (*p) {
                             if (p[0] == ' ' && p[1] == ':') {
                                 *p = 0;
@@ -1682,7 +1800,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
         }
     }
 
-    const char *c = pkt_cmd;
+    c = pkt_cmd;
 
     // Sanitize only text that can reach display/BPE paths. NAMES payloads are
     // protocol ASCII and hot during JOIN bursts. c[2] is only read after the
@@ -1705,7 +1823,8 @@ void parse_irc_message(char *line) __z88dk_fastcall
                    (uint8_t)((c1 | 0x20) - 'a') <= 25) {
             // Normalize to uppercase: 0xDF clears bit 5 (a→A, A→A, \0→\0)
             pkt_cmd[0] = c0 & 0xDF; pkt_cmd[1] = c1 & 0xDF;
-            cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
+            dispatch_text_cmd();
+            return;
         } else {
             return;
         }
@@ -1715,8 +1834,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
         // Manual /names owns the main area. Keep the normal pagination/cancel
         // path, but do not let interleaved channel traffic render into it.
         if (show_names_list &&
-            cmd_id != 353 && cmd_id != 366 &&
-            cmd_id != 0x5049 && cmd_id != 0x504F) {
+            cmd_id != 353 && cmd_id != 366) {
             return;
         }
 
@@ -1728,8 +1846,8 @@ void parse_irc_message(char *line) __z88dk_fastcall
             }
         }
 
-        if (cmd_id < 1000) h_numeric_default();
-        else h_default_cmd();
+        // Only validated three-digit numerics reach this path.
+        h_numeric_default();
     }
 }
 
@@ -1803,7 +1921,7 @@ void process_irc_data(void)
         } else {
             // Reset silence counter on ANY server activity
             server_silence_frames = 0;
-            // NO borrar keepalive_ping_sent aquí
+            // FIX ChatGPT audit: NO borrar keepalive_ping_sent aquí
             // Solo debe borrarse al recibir PONG (se hace en handler de PONG)
             parse_irc_message(rx_line);
         }

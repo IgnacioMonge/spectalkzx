@@ -15,15 +15,14 @@ SPECTALK_DAT = "src/SPECTALK.DAT"
 def load_our_font(path=SPECTALK_DAT):
     with open(path, 'rb') as f:
         data = f.read(298)
-    lut = data[:10]
     packed = data[10:298]
     font = {}
     for ch in range(32, 128):
         idx = (ch - 32) * 3
         scanlines = []
         for b in packed[idx:idx+3]:
-            scanlines.append(lut[(b >> 4) & 0x0F])
-            scanlines.append(lut[b & 0x0F])
+            scanlines.append((b >> 4) * 0x11)
+            scanlines.append((b & 0x0F) * 0x11)
         # Convert to 4-bit tuples for fast comparison
         rows = []
         for sc in scanlines[:6]:

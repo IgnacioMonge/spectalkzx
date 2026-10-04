@@ -1,3 +1,6 @@
-Native Spectrum Next support
-New Spectranext paging system
+Automatic IRC service login
+Spectranext: launch from the web
+New colour globe on Next
+Better clock on Next and Spectranext
+Safer saving of settings
 And much, much more!

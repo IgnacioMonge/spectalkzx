@@ -7,14 +7,17 @@
 #define NET_SEND_ZERO_BUDGET 50u
 static uint8_t net_hup_pending;
 static uint8_t net_fd;
-static uint8_t net_open;
+static uint8_t net_open; /* 0=no fd, 1=TX usable, 2=closed/TX failed */
 static uint8_t net_poll_in;
 
 extern uint8_t rb_push(uint8_t value) __z88dk_fastcall;
 
 static void net_mark_closed(void)
 {
-    net_hup_pending = 1;
+    if (net_open == 1) {
+        net_open = 2;
+        net_hup_pending = 1;
+    }
 }
 
 static void net_publish_closed(void)
@@ -28,10 +31,7 @@ static void net_publish_closed(void)
     net_hup_pending = 0;
 }
 
-static uint8_t net_rom_failed(uint8_t flags)
-{
-    return flags & ROM_CARRY;
-}
+#define net_rom_failed(flags) ((flags) & ROM_CARRY)
 
 static void net_send_block(const void *data, uint16_t length)
 {
@@ -39,7 +39,7 @@ static void net_send_block(const void *data, uint16_t length)
     uint8_t zero_budget = NET_SEND_ZERO_BUDGET;
     uint16_t sent;
 
-    if (connection_state < STATE_TCP_CONNECTED || !length) return;
+    if (connection_state < STATE_TCP_CONNECTED || net_open != 1 || !length) return;
     while (length) {
         spxn_regs.a = net_fd;
         spxn_regs.de = (uint16_t)(uintptr_t)next;
@@ -131,11 +131,6 @@ uint8_t net_connect(const char *host, const char *port,
     return NET_CONNECT_OK;
 }
 
-uint8_t net_start_stream(void)
-{
-    return NET_STREAM_OK;
-}
-
 void net_close(void)
 {
     if (net_open) {
@@ -194,10 +189,7 @@ void net_pump_rx(void)
     }
 
     free = (uint16_t)(rb_tail - rb_head - 1u) & RING_BUFFER_MASK;
-    if (!free) {
-        rx_overflow = 1;
-        return;
-    }
+    if (!free) return; /* Backpressure: no socket byte was consumed or lost. */
     contiguous = RING_BUFFER_SIZE - rb_head;
     if (contiguous > free) contiguous = free;
     if (contiguous > NET_RECV_CHUNK) contiguous = NET_RECV_CHUNK;

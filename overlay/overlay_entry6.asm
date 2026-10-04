@@ -5,6 +5,8 @@ SECTION code_user
 
 PUBLIC _sntp_udp_ovl
 EXTERN _switcher_render_ovl
+EXTERN _notice_cmd_ovl
+EXTERN _away_cmd_ovl
 
 EXTERN _frame_wait
 EXTERN _draw_status_bar
@@ -27,6 +29,8 @@ DEFC TZ_RTC = 127
 DEFC RAW_WAIT_BUDGET = 250
 DEFC UDP_TX_POLL_BUDGET = $C0
 IFDEF SPECTALK_NEXT
+EXTERN _next_uart_status
+EXTERN _rx_overflow
 DEFC UDP_UART_TX_STATUS    = $133B
 DEFC UDP_UART_TX_BUSY      = $02
 ELSE
@@ -35,15 +39,18 @@ DEFC UDP_UART_DATA_REG     = $C6
 DEFC UDP_UART_STAT_REG     = $C7
 ENDIF
 
-    dw 2
+    dw 4
     dw _sntp_udp_ovl
     dw _switcher_render_ovl
+    dw _notice_cmd_ovl
+    dw _away_cmd_ovl
 
 IFDEF SPECTALK_SPECTRANEXT
 EXTERN _spectranext_clock_ovl
 DEFC _sntp_udp_ovl = _spectranext_clock_ovl
 ELSE
 
+EXTERN _uart_tx_failed
 ; Overlay-safe UART TX. Do not call resident _ay_uart_send here: it drains RX
 ; into ring_buffer, and this overlay is executing from ring_buffer.
 ; L=byte. CF=0 sent; CF=1 TX stayed busy for the complete poll budget.
@@ -52,11 +59,14 @@ udp_uart_send:
 IFDEF SPECTALK_NEXT
     ld bc, UDP_UART_TX_STATUS
 udp_uart_wait:
-    in a, (c)
+    call _next_uart_status
+    bit 6, a
+    jr nz, udp_uart_fault
     and UDP_UART_TX_BUSY
     jr z, udp_uart_ready
     dec d
     jr nz, udp_uart_wait
+udp_uart_fault:
     scf
     ret
 udp_uart_ready:
@@ -99,9 +109,16 @@ udp_send_string:
     jr udp_send_string
 
 _sntp_udp_ovl:
+    ld a, (_uart_tx_failed)
+    or a
+    ret nz
     ld a, (_sntp_tz)
     cp TZ_RTC
     jp z, udp_done
+IFDEF SPECTALK_NEXT
+    xor a
+    ld (_rx_overflow), a
+ENDIF
 
     ld hl, cmd_cipdomain
     call udp_send_string
@@ -194,12 +211,13 @@ udp_done:
 
 udp_tx_fatal:
     ; The ESP may own a truncated AT command or an incomplete fixed payload.
-    ; Emit nothing else: fail-stop until the user reinitializes the transport.
+    ; Emit nothing else: reset the ESP and restart before sending again.
     xor a
     ld (_connection_state), a
     ld (_sntp_init_sent), a
     ld (_sntp_waiting), a
     inc a
+    ld (_uart_tx_failed), a
     ld (_status_bar_dirty), a
     jp _reset_rx_state
 
@@ -333,7 +351,7 @@ rbb_frame:
 rbb_poll:
     push hl
     push bc
-    call uartRead
+    call udp_uart_read
     pop bc
     pop hl
     jr c, rbb_have_byte
@@ -356,7 +374,7 @@ rbt_frame:
     ld c, 16
 rbt_poll:
     push bc
-    call uartRead
+    call udp_uart_read
     pop bc
     ret c
     dec c
@@ -367,6 +385,24 @@ rbt_poll:
     ret
 read_budget_left:
     DEFB 0
+
+; A hardware gap invalidates the entire raw UDP response, not just a line.
+IFDEF SPECTALK_NEXT
+udp_uart_read:
+    call uartRead
+    push af
+    ld a, (_rx_overflow)
+    or a
+    jr nz, udp_uart_read_bad
+    pop af
+    ret
+udp_uart_read_bad:
+    pop af
+    or a                    ; CF=0: no usable byte; bounded caller times out
+    ret
+ELSE
+DEFC udp_uart_read = uartRead
+ENDIF
 
 convert_ntp_time:
     ld de, ntp_secs + 3

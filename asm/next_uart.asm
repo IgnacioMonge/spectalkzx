@@ -5,6 +5,10 @@ SECTION code_user
 EXTERN _frame_wait
 EXTERN _rb_push
 EXTERN _overlay_mode
+EXTERN _uart_tx_failed
+EXTERN _uart_tx_fail
+EXTERN _rx_discard_pending
+PUBLIC _next_uart_status
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC uartRead
@@ -25,7 +29,7 @@ NEXTREG_VIDEO_TIMING EQU 0x11
 ;; CF=1/A=byte when RX data is available; CF=0 otherwise.
 uartRead:
     ld bc, UART_TX_STATUS
-    in a, (c)
+    call _next_uart_status
     rrca
     ret nc
     inc b
@@ -66,14 +70,18 @@ next_uart_init_flush:
 
 ;; Fastcall byte in L. Bound TX wait and preserve RX progress while resident.
 _ay_uart_send:
+    ld a, (_uart_tx_failed)
+    or a
+    scf
+    ret nz
     ld d, UART_TX_POLL_BUDGET
     ld bc, UART_TX_STATUS
 next_uart_send_wait:
-    in a, (c)
+    call _next_uart_status
     bit 1, a
     jr z, next_uart_send_ready
     dec d
-    ret z
+    jp z, _uart_tx_fail
     rrca
     jr nc, next_uart_send_wait
     ld a, (_overlay_mode)
@@ -94,7 +102,58 @@ next_uart_send_wait:
 
 next_uart_send_ready:
     out (c), l
+    or a
     ret
+
+; Read all clear-on-read error flags at every status access.
+; On a fault, discard through FIFO-empty before exposing bytes again. Each
+; call consumes at most 32 bytes; a persistent fault survives budget exits.
+; BC=$133B. Preserves BC/DE/HL, returns status with RX hidden and bit6 set
+; whenever the caller must reload cached ring indices after invalidation.
+; https://wiki.specnext.dev/UART_TX (bits 7/6/5/2)
+_next_uart_status:
+    in a, (c)
+    push af
+    and 0xE4
+    jr nz, next_uart_rx_fault
+    ld a, (next_rx_fault)
+    or a
+    jr nz, next_uart_rx_fault
+    pop af
+    ret
+next_uart_rx_fault:
+    push hl
+    call _rx_discard_pending
+    pop hl
+    ld a, 1
+    ld (next_rx_fault), a
+    pop af
+    push de
+    ld d, 32
+next_uart_rx_flush:
+    bit 0, a
+    jr z, next_uart_rx_empty
+    inc b
+    in a, (c)
+    dec b
+    in a, (c)
+    dec d
+    jr nz, next_uart_rx_flush
+    jr next_uart_rx_hidden
+next_uart_rx_empty:
+    push af
+    xor a
+    ld (next_rx_fault), a
+    pop af
+next_uart_rx_hidden:
+    pop de
+    and 0xFE
+    or 0x40
+    ret
+
+SECTION bss_user
+next_rx_fault: defs 1
+SECTION code_user
 
 next_uart_set_baud_115200:
     di
