@@ -1,0 +1,5 @@
+type=file name=boot.zx size=184
+type=file name=SPECTALK.SCR size=6912
+type=file name=SPECTALK.BIN size=35017
+type=file name=SPECTALK.OVL size=16984
+type=file name=SPECTALK.DAT size=16829
