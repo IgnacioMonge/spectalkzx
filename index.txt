@@ -1,6 +1,6 @@
-type=file name=boot.zx size=55
-type=file name=SPECTALK.TAP size=42053
-type=file name=SPECTALK.OVL size=16984
-type=file name=SPECTALK.DAT size=16829
-type=file name=package.json size=688
+type=file name=boot.zx size=221
+type=file name=SPCTX.INS size=3313
+type=file name=SPCTX.PKG size=44860
+type=file name=SPCTX.SCR size=6912
+type=file name=package.json size=678
 type=dir name=install

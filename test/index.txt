@@ -1,5 +1,0 @@
-type=file name=boot.zx size=55
-type=file name=SPECTALK.TAP size=42084
-type=file name=SPECTALK.OVL size=16984
-type=file name=SPECTALK.DAT size=16829
-type=file name=package.json size=688
