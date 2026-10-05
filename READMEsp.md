@@ -24,8 +24,7 @@
 Versión actual:
 [SpecTalkZX 1.4.1 Triton](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
 
-La versión 1.4.1 arranca directamente desde la web en el cartucho Spectranext,
-aprende el acceso a los servicios IRC, aguanta el tráfico intenso de los
+La versión 1.4.1 aprende el acceso a los servicios IRC en cualquier red, aguanta el tráfico intenso de los
 canales y dibuja el texto más rápido. Classic ZX, Spectrum Next nativo y
 Spectranext comparten la misma interfaz, los mismos comandos y el mismo formato
 de configuración.
@@ -54,8 +53,6 @@ de configuración.
 
 ## Novedades principales de 1.4.1
 
-- **Arranque desde la web en Spectranext**: una URL inicia el cliente, sin
-  instalar nada.
 - **Acceso automático a servicios**: el acceso enviado a NickServ, NiCK, Q o
   cualquier otro servicio se aprende cuando el servicio responde y se envía en
   cada conexión.
@@ -82,8 +79,7 @@ visibles y las notas de compatibilidad.
 Classic utiliza <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
 <code>SPECTALK.DAT</code>. Conserva los tres ficheros de la misma versión.
 Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo. Spectranext
-ejecuta sus ficheros desde la web o los instala en el almacenamiento del
-cartucho.
+instala sus ficheros desde la web en el almacenamiento del cartucho.
 
 ---
 
@@ -114,22 +110,12 @@ cartucho.
 
 ### Cartucho Spectranext
 
-Las dos opciones requieren firmware del cartucho `0.9-6fc153a3` o posterior y
-conexión Wi-Fi. La configuración y los marcadores se guardan siempre en el XFS
-local, en <code>/CFG</code>.
-
-**Arrancar desde la web.** No se instala nada y siempre usas la versión
-publicada.
+Requiere firmware del cartucho `0.9-6fc153a3` o posterior y conexión Wi-Fi.
+La configuración y los marcadores se guardan en el XFS local, en
+<code>/CFG</code>.
 
 1. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
-   <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
-2. SpecTalkZX arranca tras una breve pantalla de carga; cualquier tecla la
-   salta.
-
-**Instalar para usarlo sin la web.**
-
-1. Selecciona **Load Resource URL** e introduce:
-   <code>https://ignaciomonge.github.io/SpecTalkZX/install/</code>.
+   <code>https://ignaciomonge.github.io/spectalkzx/</code>.
 2. El instalador guiado valida el paquete, escribe
    <code>SPECTALK.TAP</code>, <code>SPECTALK.OVL</code>,
    <code>SPECTALK.DAT</code> y <code>SPCTX.ZX</code> en el XFS local, y
@@ -137,6 +123,10 @@ publicada.
 3. En adelante inicia <code>SPCTX.ZX</code> desde el XFS local. Para
    actualizar, vuelve a ejecutar el instalador; se conservan
    <code>/CFG/SPECTALK.CFG</code> y los cinco marcadores.
+
+Arrancar SpecTalkZX directamente desde la web, sin instalarlo, todavía no está
+disponible: funciona desde un servidor HTTP local, pero aún no desde la
+dirección HTTPS.
 
 ---
 
@@ -177,9 +167,9 @@ red de demostración ficticia.
 <table>
   <tr>
     <td align="center" valign="top" width="50%">
-      <strong>Arranque desde la web</strong><br>
+      <strong>Spectranext</strong><br>
       <a href="images/snapshot-run-from-web.png"><img src="images/snapshot-run-from-web.png" width="420" alt="Pantalla de carga de SpecTalkZX al arrancar desde la web en Spectranext"></a><br>
-      <sub>Spectranext carga SpecTalkZX directamente desde su dirección web; cualquier tecla salta esta pantalla.</sub>
+      <sub>Pantalla de carga de SpecTalkZX en el cartucho Spectranext.</sub>
     </td>
     <td align="center" valign="top" width="50%">
       <strong>Elegir nick</strong><br>
@@ -553,9 +543,6 @@ nativo, con `/SYS/SPTBM1.CFG` a `SPTBM5.CFG` como alternativa si falta
   del reloj se realiza antes de abrir la conexión IRC.
 - La configuración y los marcadores se guardan en XFS. Si se corta la
   alimentación durante una escritura, el fichero puede quedar incompleto.
-- Al arrancar desde la web, SpecTalkZX descarga <code>SPECTALK.TAP</code>,
-  <code>SPECTALK.OVL</code> y <code>SPECTALK.DAT</code> una sola vez al inicio
-  y los mantiene abiertos durante toda la sesión.
 
 ---
 
@@ -606,8 +593,7 @@ Spectranext.
 | La red está lista pero IRC no conecta | Credenciales Wi-Fi, nombre del servidor y puerto IRC en texto plano |
 | El arranque se detiene en esxDOS/DAT | divMMC montado y los tres ficheros juntos de la misma compilación |
 | Fallan la ayuda, About o los marcadores | Falta `SPECTALK.OVL` o `SPECTALK.DAT`, o pertenece a otra compilación |
-| Spectranext no arranca desde la web | Firmware `0.9-6fc153a3` o posterior, Wi-Fi conectado y **Load Resource URL** con `https://ignaciomonge.github.io/SpecTalkZX/` |
-| Spectranext debe arrancar sin la web | Instálalo desde `https://ignaciomonge.github.io/SpecTalkZX/install/` y luego inicia `SPCTX.ZX` |
+| Spectranext no se instala | Firmware `0.9-6fc153a3` o posterior, Wi-Fi conectado y **Load Resource URL** con `https://ignaciomonge.github.io/spectalkzx/` |
 | El reloj sigue en `00:00` | Acceso SNTP y zona numérica; Classic y Next nativo también admiten `!tz rtc` |
 | Falla NickServ | Usa `/id`, `nickpass=` o un nombre de servicio alternativo en `nickserv=` |
 | Demasiados JOIN/PART | Alterna `!traffic` |

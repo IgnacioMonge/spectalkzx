@@ -2,16 +2,31 @@
 
 Only user-visible changes and compatibility notes are listed here.
 
+## [Unreleased]
+
+### Changed
+
+- Spectranext's main address, `https://ignaciomonge.github.io/spectalkzx/`,
+  installs SpecTalkZX again. Running it straight from the web is withdrawn
+  for now: on the cartridge's HTTPS mounts the program cannot reuse its data
+  file after startup and stops with `DAT NOT FOUND!`. `/install/` keeps
+  working.
+
+### Fixed
+
+- Corrected the Spectranext GitHub Pages URLs after the repository rename to
+  `spectalkzx`.
+
 ## [1.4.1] - Triton - 2026-10-05
 
 ### Added
 
 - Spectranext runs SpecTalkZX straight from the web. Choose **Load Resource
-  URL** and enter `https://ignaciomonge.github.io/SpecTalkZX/`: the client
+  URL** and enter `https://ignaciomonge.github.io/spectalkzx/`: the client
   starts without being installed, after a short loading screen that any key
   skips. Configuration and bookmarks still live in local cartridge storage.
   The guided installer, for starting without a network, is now at
-  `https://ignaciomonge.github.io/SpecTalkZX/install/`.
+  `https://ignaciomonge.github.io/spectalkzx/install/`.
 - Service logins are learned on any network. A private `IDENTIFY`, `AUTH` or
   `LOGIN` sent to a service, with `/msg`, from its query window or with
   `/login service command`, is remembered once the server marks the nick
@@ -146,7 +161,7 @@ by the cartridge package format. Classic ZX is unchanged.
 - Native support for ZX Spectrum models equipped with the Spectranext
   cartridge.
 - Guided Spectranext installation from
-  `https://ignaciomonge.github.io/SpecTalkZX/`.
+  `https://ignaciomonge.github.io/spectalkzx/`.
 - Cartridge storage for configuration and five bookmark slots under `/CFG`.
 - UDP/SNTP clock synchronization for Spectranext.
 - Target-specific startup and About identification.
@@ -232,3 +247,5 @@ Earlier releases are available on the
 [1.3.9]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9
 [1.3.8]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.8
 [1.3.7]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.7
+
+[Unreleased]: https://github.com/IgnacioMonge/spectalkzx/compare/v1.4.1...main
