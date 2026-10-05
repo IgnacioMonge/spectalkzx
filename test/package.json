@@ -1,0 +1,27 @@
+{
+  "files": [
+    {
+      "name": "boot.zx",
+      "sha256": "7d660fdd1829345dec448f65d9fb625fa75baa0da43bf7e7e27f77ad7ef669b6",
+      "size": 55
+    },
+    {
+      "name": "SPECTALK.TAP",
+      "sha256": "d040a2adbb77f09b005885b8a12f44d6effb9ec322ca78d8f21f1c598bb34467",
+      "size": 42084
+    },
+    {
+      "name": "SPECTALK.OVL",
+      "sha256": "42a3bbb3f0ef8b64294b3ed2b9fda179849ed4bd3da1d18cca20b09033602baf",
+      "size": 16984
+    },
+    {
+      "name": "SPECTALK.DAT",
+      "sha256": "579fdd7d44dff0d0ccd7f949827964a988e7ae7b2d7436dab8f66ce53b27a066",
+      "size": 16829
+    }
+  ],
+  "minimum_firmware": "0.9-6fc153a3",
+  "resource": "SpecTalkZX",
+  "version": "1.4.1"
+}
