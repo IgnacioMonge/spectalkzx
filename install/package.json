@@ -7,13 +7,13 @@
     },
     {
       "name": "SPCTX.INS",
-      "sha256": "0fe737f90843246a74793031e80a39e105eb9953182bce82d4c26369a371fadb",
+      "sha256": "0a20103c724ff39445a611e6a2e8462669fde61d85293be89f4d7c665622304b",
       "size": 3313
     },
     {
       "name": "SPCTX.PKG",
-      "sha256": "b7357bfcb60e00d4aae59b024b5ca5167b8285696532a7da5449fd78eaba13fc",
-      "size": 45048
+      "sha256": "bf814c9424f462baa9df5aa9e52eb005e634f1a4b44194d90e92110616c89e90",
+      "size": 44860
     },
     {
       "name": "SPCTX.SCR",

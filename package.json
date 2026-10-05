@@ -7,17 +7,17 @@
     },
     {
       "name": "SPECTALK.TAP",
-      "sha256": "99cce8e48a2bac58de25085a5a62a7bf5a6b04b4cd641d6412f9d945794dc9db",
-      "size": 42361
+      "sha256": "5ba06d4472fac067fb812d68e5de930dded434e623a1f9dd069e829eccaa735d",
+      "size": 42053
     },
     {
       "name": "SPECTALK.OVL",
-      "sha256": "2bfa10fdb3d6a4595d61de4aa6bf0d4d41f65e15612023521772ef4a56e0e271",
-      "size": 17026
+      "sha256": "b4ffb37bc8665cd790d028e4c55fa5c46076ad7143987773a8a80344b9feecad",
+      "size": 16984
     },
     {
       "name": "SPECTALK.DAT",
-      "sha256": "c6a8baee4680b4c9ebeb62dd662418b8e0a70b399c495c1bba130529aba6effd",
+      "sha256": "579fdd7d44dff0d0ccd7f949827964a988e7ae7b2d7436dab8f66ce53b27a066",
       "size": 16829
     }
   ],
