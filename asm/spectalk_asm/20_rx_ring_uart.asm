@@ -153,6 +153,10 @@ trln_loop:
     exx
     dec bc              ; consume one byte from cached availability
     exx
+IFDEF SPECTALK_NEXT
+    or a                ; NUL = UART gap marker: drop this line, resume at LF
+    jr z, trln_overflow_state
+ENDIF
     
     ; 4. Analyze character
     cp 0x0D             ; Ignorar \r

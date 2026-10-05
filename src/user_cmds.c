@@ -844,6 +844,34 @@ static void cmd_part(const char *args) __z88dk_fastcall
     remove_channel((uint8_t)idx);
 }
 
+/* First word of a service login on any network: IDENTIFY, AUTH or LOGIN. */
+static uint8_t auth_verb(const char *m) __z88dk_fastcall
+{
+    static const char verbs[] = "IDENTIFY \0AUTH \0LOGIN \0";
+    const char *v = verbs;
+    do {
+        if (st_stristr(m, v) == m) return 1;
+        v += st_strlen(v) + 1;
+    } while (*v);
+    return 0;
+}
+
+/* Private text, from /msg or a query window. A login is learned through
+   the /login overlay, which sends it without echoing the password. */
+static void send_private(const char *target, const char *msg) __z88dk_callee
+{
+    if (!IS_CHAN_PREFIX(target[0]) && auth_verb(msg)) {
+        char *d = (char *)overlay_slot;
+        st_copy_n(d, target, AUTH_SERVICE_SIZE + 1);
+        d += st_strlen(d);
+        *d++ = ' ';
+        st_copy_n(d, msg, AUTH_COMMAND_SIZE + 1);
+        overlay_exec_rx(0, 4);
+        return;
+    }
+    irc_send_privmsg(target, msg);
+}
+
 static void cmd_msg(const char *args) __z88dk_fastcall
 {
     // Nivel 2: Requiere estar registrado para enviar PRIVMSG
@@ -865,12 +893,12 @@ static void cmd_msg(const char *args) __z88dk_fastcall
             char *copy = line_buffer + 1;
             st_copy_n(copy, msg, sizeof(line_buffer) - 1);
             switch_to_channel((uint8_t)idx);
-            irc_send_privmsg(irc_channel, copy);
+            send_private(irc_channel, copy);
             return;
         }
     }
 
-    irc_send_privmsg(target, msg);
+    send_private(target, msg);
 }
 
 static void cmd_reply(const char *args) __z88dk_fastcall
@@ -1701,7 +1729,7 @@ void parse_user_input(char *line) __z88dk_fastcall
             return;
         }
 
-        irc_send_privmsg(irc_channel, line);
+        send_private(irc_channel, line);
         return;
     }
 

@@ -21,7 +21,10 @@ def main():
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--revision', help='Read ASM from this Git revision for comparison')
     parser.add_argument('--spectranext', action='store_true', help='Exclude UART service points')
+    parser.add_argument('--next', action='store_true', dest='next_target',
+                        help='Exercise native Next scroll UART service points')
     args = parser.parse_args()
+    assert not (args.next_target and args.spectranext)
     root = args.root
     def blob(path):
         if args.revision:
@@ -48,6 +51,14 @@ def main():
     kernels += section(render, 'dbc_add_col:', 'dbc_left_core:')
     kernels += section(screen, '_fast_fill_attr:', '; ===')
     kernels += section(screen, '_scroll_main_zone:', '; =============================================================================\n; void main_newline')
+    dma_body = None
+    if args.next_target:
+        # z88dk-ticks has no zxnDMA: an LDIR stand-in proves the block geometry,
+        # and the DMA body itself (OUTs ignored) gives the CPU share of timing.
+        start = kernels.index('smz_copy16n:\n    push bc')
+        end = kernels.index('ELSE', start)
+        dma_body = kernels[start:end]
+        kernels = kernels[:start] + 'smz_copy16n:\n    ldir\n    ret\n' + kernels[end:]
     if 'render_poll_rx:' in screen:
         kernels += section(screen, 'render_poll_rx:', 'ENDIF')
     definitions = '''
@@ -93,10 +104,16 @@ poll_di:
 '''
     with tempfile.TemporaryDirectory(prefix='render-cpu-') as temporary:
         tmp = Path(temporary)
-        def run(body, setup=None):
+        def run(body, setup=None, stop_at_poll=0):
             asm = tmp / 'kernel.asm'
-            asm.write_text(('    DEFINE SPECTALK_SPECTRANEXT\n' if args.spectranext else '') + '    org 0x8000\n    di\n    ld sp,0xff00\n'
-                           + body + '\n    jp 0\n' + definitions + kernels, encoding='utf-8')
+            define = ('    DEFINE SPECTALK_SPECTRANEXT\n' if args.spectranext else
+                      '    DEFINE SPECTALK_NEXT\n' if args.next_target else '')
+            stub = definitions
+            if stop_at_poll:
+                stub = stub.replace('    inc (hl)\n    exx',
+                                    f'    inc (hl)\n    ld a,(hl)\n    cp {stop_at_poll}\n    jp z,0\n    exx')
+            asm.write_text(define + '    org 0x8000\n    di\n    ld sp,0xff00\n'
+                           + body + '\n    jp 0\n' + stub + kernels, encoding='utf-8')
             result = subprocess.run(['sjasmplus', '--nologo', '--dirbol', '--raw='+str(tmp/'code.bin'), str(asm)], capture_output=True, text=True, timeout=30)
             assert result.returncode == 0, result.stdout + result.stderr
             memory = bytearray(65536)
@@ -232,6 +249,16 @@ pc_done:
         assert after[0x7300] == 0
         assert after[0x7301] == (41 if polls_uart else 0)
         print(f'scroll: {cycles} T, polls={after[0x7301]}')
+        if args.next_target:
+            # CPU share with the real DMA body, plus 4 T per byte for the 41
+            # blocks (8 x 512 bitmap bytes and 512 attribute bytes) the DMA moves.
+            kernels = kernels.replace('smz_copy16n:\n    ldir\n    ret\n', dma_body)
+            _, _, cpu_part = run('    call _scroll_main_zone', scroll_setup)
+            total = cpu_part + 4 * (8 * 512 + 512)
+            # 2x margin for contention and IRQs inside the smaller 256-byte FIFO.
+            limit = 256 * 10 * 3_500_000 / 115200
+            assert 2 * total < limit, total
+            print(f'Next DMA scroll: {cpu_part} T CPU + {total - cpu_part} T DMA = {total} T; 2x margin < {limit:.0f} T FIFO budget')
         _, _, cycles = run('    ld hl,0x5880\n    ld de,0x5860\n    ld bc,512\n    call smz_copy16n')
         print(f'largest scroll block (512 bytes), harness included: {cycles} T')
         print('Rendering CPU checks OK; UART stub only, hardware pending')

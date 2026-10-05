@@ -636,6 +636,23 @@ ENDIF
 ; Returns with interrupts disabled; IX/IY are restored by _main_newline.
 ; =============================================================================
 _scroll_main_zone:
+IFDEF SPECTALK_NEXT
+    ; zxnDMA memory-to-memory, both ports incrementing, 2-cycle timing,
+    ; stop at end of block. Reloaded on each scroll in case the OS used it.
+    ld bc, ZXN_DMA_PORT
+    ld a, 0x83              ; WR6 DISABLE
+    out (c), a
+    ld a, 0x54              ; WR1 port A memory, increment, timing follows
+    out (c), a
+    ld a, 0x02
+    out (c), a
+    ld a, 0x50              ; WR2 port B memory, increment, timing follows
+    out (c), a
+    ld a, 0x02
+    out (c), a
+    ld a, 0x82              ; WR5 stop at end of block
+    out (c), a
+ENDIF
     di
     ld iy, 0x5C3A
     ld ixl, 7
@@ -719,6 +736,31 @@ smz_cross_block:
     ld bc, 32
     jp smz_copy16n
 
+IFDEF SPECTALK_NEXT
+ZXN_DMA_PORT EQU 0x006B
+; Native Next: one zxnDMA continuous block, 4 T per byte instead of 16, so a
+; whole scroll stays well inside the UART FIFO's time budget.
+; HL=source, DE=destination, BC=nonzero length. Preserves IX/IY/SP.
+smz_copy16n:
+    push bc
+    ld bc, ZXN_DMA_PORT
+    ld a, 0x7D              ; WR0 A->B; port A address and length follow
+    out (c), a
+    out (c), l
+    out (c), h
+    pop hl
+    out (c), l
+    out (c), h
+    ld a, 0xAD              ; WR4 continuous; port B address follows
+    out (c), a
+    out (c), e
+    out (c), d
+    ld a, 0xCF              ; WR6 LOAD
+    out (c), a
+    ld a, 0x87              ; WR6 ENABLE: the CPU resumes when the block is done
+    out (c), a
+    ret
+ELSE
 ; Forward copy in exact 16-byte groups.
 ; HL=source, DE=destination, BC=nonzero multiple of 16.
 ; Preserves IX/IY/SP; the 16th LDI leaves P/V set iff data remains.
@@ -741,6 +783,7 @@ smz_copy16n:
     ldi
     jp pe, smz_copy16n
     ret
+ENDIF
 
 ; =============================================================================
 ; void main_newline(void)

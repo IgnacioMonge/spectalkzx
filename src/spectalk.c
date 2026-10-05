@@ -2585,7 +2585,11 @@ void main(void)
         tick_accum = 0;
 
         while (1) {
+#ifdef SPECTALK_NEXT
+            frame_wait_drain(); // No CTS: receive throughout the frame wait.
+#else
             frame_wait(); // Sync to the active video cadence
+#endif
 #ifndef SPECTALK_SPECTRANEXT
             if (uart_tx_failed == 1) {
                 net_disconnect();
@@ -2616,8 +2620,7 @@ void main(void)
             if (autojoin_ident_grace) {
                 if (autojoin_ident_grace <= elapsed) {
                     autojoin_ident_grace = 0;
-                    if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
-                        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
+                    if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) {
                         autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
                         session_autojoin_try();
                     }

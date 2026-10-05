@@ -108,7 +108,12 @@ typedef struct {
 // =============================================================================
 // DRAIN LIMITS
 // =============================================================================
+#ifdef SPECTALK_NEXT
+// No CTS on the internal ESP: service a full burst at each resident drain.
+#define DRAIN_NORMAL    0     // ASM maps zero to the bounded 255-byte budget
+#else
 #define DRAIN_NORMAL    32
+#endif
 #define RX_TICK_PARSE_BYTE_BUDGET 512   // Reduced from 1024 to prevent keyboard lag during JOIN bursts
 
 // Buffer pressure thresholds

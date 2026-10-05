@@ -55,8 +55,8 @@ commands and configuration format.
 
 - **Run from the web on Spectranext**: one URL starts the client, with no
   installation step.
-- **Automatic service login**: `/login` learns a NickServ or QuakeNet Q login
-  once the service confirms it, then sends it on every connection.
+- **Automatic service login**: a login sent to NickServ, NiCK, Q or any other
+  service is learned once the service answers, then sent on every connection.
 - **Steady under heavy traffic**: busy channels and long name lists no longer
   lose blocks of received text.
 - **Faster text**: chat lines draw about 25% faster.
@@ -331,9 +331,8 @@ demo network.
 
 - Supports the usual IRC workflow: `JOIN`, `PART`, `QUIT`, `NICK`, `PRIVMSG`, `NOTICE`, `TOPIC`, `MODE`, `KICK`, `WHO`, `WHOIS`, `LIST`, and `NAMES`.
 - Supports CTCP `VERSION`, `PING`, `TIME`, and `ACTION`.
-- NickServ can be used manually with `/id` or automatically with `nickpass=`.
+- NickServ can be used manually with `/id` or automatically with `nickpass=`, which is sent after the MOTD.
 - `nickserv=` can override the service nick when a network does not use standard `NickServ` naming.
-- Auto-identify accepts requests only from that configured nick, or `NickServ` by default; other service names require an explicit `nickserv=` setting.
 - Friends are monitored through `!friend`; JOIN/NAMES results generate compact notifications.
 - Ignores are managed with `/ignore`, including `-nick` removal.
 - Away state supports manual `/away` and idle `!autoaway`.
@@ -342,34 +341,39 @@ demo network.
 
 ### Service login
 
-`/login service command [arguments]` sends `PRIVMSG <service> :<command>
-[arguments]` and, once the service confirms it, remembers it as your login for
-later connections:
+Identify as usual on any network and SpecTalkZX learns how you did it:
 
 ```text
-/login NickServ IDENTIFY account secret
-/login Q@CServe.quakenet.org AUTH account secret
+/msg NickServ IDENTIFY account secret
+/msg NiCK IDENTIFY account secret
+/msg Q@CServe.quakenet.org AUTH account secret
 ```
 
-- **Confirmation.** The login is learned only from a direct NOTICE sent by that
-  service to your current nick with a recognized positive answer, or from
-  numeric `900` for this nick. `already identified`, errors, notices from other
-  senders and notices for another nick do not count. An unrecognized answer
-  leaves the login pending, and `!save` and bookmark `S:STORE` reject it.
+- **Detection.** A private message whose first word is `IDENTIFY`, `AUTH` or
+  `LOGIN`, in any case, is a login, whether you type it with `/msg` or in the
+  service's query window. It is sent without showing the password on screen.
+  `/login service command [arguments]` does the same for any other command
+  word.
+- **Confirmation.** The server, not the service's wording, confirms it: user
+  mode `+r` on your nick (UnrealIRCd, InspIRCd, ircu, Hybrid, IRC-Hispano) or
+  numeric `900` (Solanum, Libera). A rejected password produces neither, so it
+  is never saved. Until then the login is pending, and `!save` and bookmark
+  `S:STORE` reject it.
 - **Saving.** A confirmed login is saved automatically: into the bookmark it
   was loaded from, or into the current configuration after a manual `/server`
   connection, where `S:STORE` can link it to a bookmark. A failed write is
   reported and left for a manual `!save`.
-- **Next connection.** The saved login is sent once, after the MOTD.
-- **Retrying.** While a login is pending, another `/login` does not replace it.
-  If an attempt fails or is not recognized, disconnect before trying again. A
-  pending login is discarded on disconnect; the last confirmed one stays on
-  disk and returns when you reload its bookmark or restart.
+- **Next connection.** The saved login, or `nickpass=`, is sent once after
+  the MOTD. Autojoin waits for `+r` or `900`, or 5 seconds if neither comes.
+- **Retrying.** A new login replaces a pending one, so a mistyped password can
+  be corrected straight away. A pending login is discarded on disconnect; the
+  last confirmed one stays on disk and returns when you reload its bookmark or
+  restart.
 - **Limits.** One service destination of up to 31 characters and a command of
   up to 63; channels, several destinations and `|` are rejected. The command is
   replayed verbatim and stored as plaintext in configuration and bookmark
-  files, so only reusable credentials work. SASL, CertFP, IRC `PASS` and
-  changing OTP/TOTP codes are not supported.
+  files, so only reusable credentials work. SASL, CertFP, IRC `PASS`, `/raw`
+  and changing OTP/TOTP codes are not supported.
 - `/id` and `nickpass=` remain available as the classic IDENTIFY path.
 
 ---
@@ -414,7 +418,7 @@ Toggle commands with no argument alternate their state; they accept `on`/`off`/`
 | `/nick [name]` | | View or set nick |
 | `/pass [password\|clear\|none]` | | View/set stored password; `clear`/`none` remove it for the next connection |
 | `/id [password]` | | Identify with NickServ or configured service nick |
-| `/login service command [arguments]` | | Send a service login command and wait for confirmation |
+| `/login service command [arguments]` | | Send any service login command; the service's reply confirms it |
 | `/join channel\|#channel\|&channel` | `/j` | Join a bare, `#`- or `&`-prefixed channel |
 | `/part [#channel\|&channel] [message]` | `/p` | Leave the current or named `#`/`&` channel |
 | `/msg nick text` | `/m` | Send private message |

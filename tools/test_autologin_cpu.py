@@ -22,6 +22,7 @@ AUTH_SAVE = 3
 
 AUTOJOIN_MOTD_DONE = 0x01
 AUTOJOIN_IDENT_WAIT = 0x02
+AUTOJOIN_IDENT_GRACE_FRAMES = 250
 AUTOJOIN_IDENT_SENT = 0x04
 
 
@@ -299,51 +300,29 @@ def id_resident_wrapper(symbols, memory, directory, cpu):
 
 
 def notice_gate(symbols, memory, directory, cpu):
-    positive = (
-        "now identified", "now logged in", "password accepted",
-        "authentication successful", "successfully identified",
+    """Only the server's identified signals confirm a pending login: own-nick
+    MODE +r here, numeric 900 below. Service NOTICEs never do, so a rejected
+    password is not saved."""
+    cases = (
+        (":me MODE me :+r", AUTH_SAVE, "+r"),
+        (":irc.test MODE me :+ir", AUTH_SAVE, "+ir"),
+        (":irc.test MODE me :+i", AUTH_PENDING, "+i"),
+        (":irc.test MODE me :-r", AUTH_PENDING, "-r"),
+        (":irc.test MODE me :+R", AUTH_PENDING, "+R"),
+        (":Auth!u@host NOTICE me :now identified", AUTH_PENDING, "notice"),
+        (":Auth!u@host NOTICE me :Contrasena aceptada", AUTH_PENDING, "notice-es"),
+        (":Auth!u@host NOTICE me :Password incorrect", AUTH_PENDING, "rejected"),
+        (":Auth!u@host NOTICE me :please identify", AUTH_PENDING, "request"),
     )
-    for phrase in positive:
+    for line, expected, label in cases:
         sample = auth_fixture(memory, symbols)
-        string(sample, 0x5000, f":Auth!u@host NOTICE me :{phrase}")
-        jump(sample, symbols["_send_identify"], 0x4300)
-        result = execute(sample,
-                         f"ld hl,$5000\ncall {symbols['_parse_irc_message']}",
-                         "ret", directory, cpu)
-        assert result[symbols["_auth_mode"]] == AUTH_SAVE, phrase
-        assert result[symbols["_config_dirty"]] == 1, phrase
-        assert result[symbols["_nickserv_nick"]:symbols["_nickserv_nick"] + 20].split(b"\0", 1)[0] == b"Auth@services.test"
-        abi(result)
-
-    rejected = (
-        (":EvilServ!u@host NOTICE me :now identified", "sender"),
-        (":Auth!u@host NOTICE #room :now identified", "target"),
-        (":Auth!u@host PRIVMSG me :now identified", "command"),
-        (":Auth!u@host NOTICE me :not identified", "negative"),
-        (":Auth!u@host NOTICE me :password rejected", "no-success"),
-        (":Auth!u@host NOTICE me :unsuccessfully identified", "embedded-success"),
-        (":Auth!u@host NOTICE me :authentication successfully failed", "embedded-success-2"),
-        (":Auth!u@host NOTICE @#room :now identified", "channel"),
-    )
-    for line, label in rejected:
-        sample = auth_fixture(memory, symbols)
-        string(sample, 0x5000, line)
-        jump(sample, symbols["_send_identify"], 0x4300)
-        result = execute(sample,
-                         f"ld hl,$5000\ncall {symbols['_parse_irc_message']}",
-                         "ret", directory, cpu)
-        assert result[symbols["_auth_mode"]] == AUTH_PENDING, label
-        assert result[symbols["_config_dirty"]] == 0, label
-        abi(result)
-    for mode in (AUTH_LEGACY, AUTH_LEARNED, AUTH_PENDING):
-        sample = auth_fixture(memory, symbols, mode=mode)
         sample[symbols["_autojoin_defer_flags"]] = AUTOJOIN_IDENT_SENT | AUTOJOIN_IDENT_WAIT
-        string(sample, 0x5000, ":Auth!u@host NOTICE me :already identified")
+        string(sample, 0x5000, line)
         stub(sample, symbols, UI_STUBS, 0x4320)
         jump(sample, symbols["_send_identify"], 0x4300)
         result = execute(
             sample,
-            f"ld hl,$5000\ncall {symbols['_parse_irc_message']}",
+            f"xor a\nld ($4200),a\nld hl,$5000\ncall {symbols['_parse_irc_message']}",
             """\
     ld a,($4200)
     inc a
@@ -353,17 +332,14 @@ def notice_gate(symbols, memory, directory, cpu):
     ret
 """,
             directory, cpu)
-        assert result[symbols["_auth_mode"]] == mode
-        assert result[symbols["_config_dirty"]] == 0
-        assert not (result[symbols["_autojoin_defer_flags"]] & AUTOJOIN_IDENT_WAIT), (mode, hex(result[symbols["_autojoin_defer_flags"]]))
-        assert result[0x4200] == 0, (
-            "already identified sent", mode,
-            result[symbols["_auth_mode"]],
-            result[symbols["_config_dirty"]],
-            hex(result[symbols["_autojoin_defer_flags"]]),
-        )
+        identified = expected == AUTH_SAVE
+        assert result[symbols["_auth_mode"]] == expected, label
+        assert result[symbols["_config_dirty"]] == identified, label
+        flags = result[symbols["_autojoin_defer_flags"]]
+        assert bool(flags & AUTOJOIN_IDENT_WAIT) != identified, (label, hex(flags))
+        assert result[0x4200] == 0, ("a reply resent the login", label)
         abi(result)
-    print("Auth notice: positive confirmation is private-service gated; already-identified clears autojoin only and never learns/sends")
+    print("Identified: own-nick +r confirms and ends the wait; NOTICEs, -r, +R and other modes never confirm or send")
 
 
 def numeric_900(symbols, memory, directory, cpu):
@@ -379,23 +355,29 @@ def numeric_900(symbols, memory, directory, cpu):
 
 
 def motd_replay(symbols, memory, directory, cpu):
-    sample = auth_fixture(memory, symbols, mode=AUTH_LEARNED,
-                          service="Auth@services.test", payload="AUTH me secret")
-    sample[symbols["_autojoin_defer_flags"]] = 0
-    sample[symbols["_autojoin"]] = 1
-    sample[0x4200] = 0
-    stub(sample, symbols, ("_send_identify",))
-    stub(sample, symbols, ("_session_autojoin_try", "_irc_check_friends_online"), 0x4320)
-    result = execute(sample,
-                     f"xor a\nld ($4200),a\ncall {symbols['_h_motd_done']}\ncall {symbols['_h_motd_done']}",
-                     "ld a,($4200)\ninc a\nld ($4200),a\nret\n    defs $4320-$,0\n    ret",
-                     directory, cpu)
-    assert result[0x4200] == 1, "learned payload was replayed more than once"
-    assert result[symbols["_autojoin_defer_flags"]] & AUTOJOIN_MOTD_DONE
-    assert result[symbols["_autojoin_defer_flags"]] & AUTOJOIN_IDENT_WAIT
-    assert result[symbols["_autojoin_defer_flags"]] & AUTOJOIN_IDENT_SENT
-    abi(result)
-    print("MOTD: learned full payload is replayed once and guarded by IDENT_SENT")
+    """The stored login, learned or legacy nickpass, is sent once at end of MOTD
+    and arms the autojoin wait with its grace period."""
+    for mode, service, payload in ((AUTH_LEARNED, "Auth@services.test", "AUTH me secret"),
+                                   (AUTH_LEGACY, "", "secret")):
+        sample = auth_fixture(memory, symbols, mode=mode, service=service, payload=payload)
+        sample[symbols["_autojoin_defer_flags"]] = 0
+        sample[symbols["_autojoin"]] = 1
+        sample[symbols["_autojoin_ident_grace"]] = 0
+        sample[0x4200] = 0
+        stub(sample, symbols, ("_send_identify",))
+        stub(sample, symbols, ("_session_autojoin_try", "_irc_check_friends_online"), 0x4320)
+        result = execute(sample,
+                         f"xor a\nld ($4200),a\ncall {symbols['_h_motd_done']}\ncall {symbols['_h_motd_done']}",
+                         "ld a,($4200)\ninc a\nld ($4200),a\nret\n    defs $4320-$,0\n    ret",
+                         directory, cpu)
+        assert result[0x4200] == 1, ("stored login not sent exactly once", mode)
+        flags = result[symbols["_autojoin_defer_flags"]]
+        assert flags & AUTOJOIN_MOTD_DONE, mode
+        assert flags & AUTOJOIN_IDENT_WAIT, mode
+        assert flags & AUTOJOIN_IDENT_SENT, mode
+        assert result[symbols["_autojoin_ident_grace"]] == AUTOJOIN_IDENT_GRACE_FRAMES, mode
+        abi(result)
+    print("MOTD: learned and legacy logins are sent once and arm the grace-limited wait")
 
 
 def login_confirm_before_motd(symbols, memory, folder, directory, cpu):
@@ -417,7 +399,7 @@ def login_confirm_before_motd(symbols, memory, folder, directory, cpu):
     assert flags & AUTOJOIN_IDENT_WAIT, hex(flags)
 
     string(logged_in, 0x5000,
-           ":Auth!u@host NOTICE me :now identified")
+           ":irc.test MODE me :+r")
     jump(logged_in, symbols["_send_identify"], 0x4300)
     logged_in[0x4200:0x4202] = b"\0\0"
     confirmed = bytearray(execute(
@@ -451,52 +433,96 @@ def login_confirm_before_motd(symbols, memory, folder, directory, cpu):
     assert not (flags & AUTOJOIN_IDENT_WAIT)
     assert result[0x4200] == 0, "pre-MOTD confirmation replayed identify"
     abi(result)
-    print("/login: autojoin arms SENT/WAIT; NOTICE confirmation before MOTD prevents replay")
+    print("/login: autojoin arms SENT/WAIT; +r before MOTD confirms and prevents replay")
+
+
+def login_empty_args(symbols, memory, directory, cpu):
+    """NULL and empty /login arguments reach the same overlay validation."""
+    for mode in (AUTH_LEGACY, AUTH_PENDING, AUTH_LEARNED):
+        for pointer in (0, 0x5000):
+            sample = auth_fixture(memory, symbols, mode=mode,
+                                  service="NiCK", payload="IDENTIFY me secret")
+            sample[symbols["_connection_state"]] = 3
+            sample[symbols["_config_dirty"]] = 0
+            string(sample, 0x5000, "")
+            string(sample, symbols["_overlay_slot"], "stale")
+            jump(sample, symbols["_overlay_exec_rx"], 0x4300)
+            result = execute(sample, f"ld hl,{pointer}\ncall {symbols['_cmd_login']}",
+                             "ld hl,$4200\ninc (hl)\nret", directory, cpu)
+            assert result[0x4200] == 1
+            assert result[symbols["_overlay_slot"]] == 0
+            assert result[symbols["_auth_mode"]] == mode
+            assert result[symbols["_config_dirty"]] == 0
+            abi(result)
+    print("Login: NULL/empty arguments preserve pending and learned credentials")
 
 
 def login_pending_guard(symbols, memory, folder, directory, cpu):
-    sample = auth_fixture(memory, symbols, mode=AUTH_LEGACY,
-                          service="old", payload="oldpass")
+    """A new login replaces a pending one (e.g. a mistyped password) and is sent."""
+    sample = auth_fixture(memory, symbols, mode=AUTH_PENDING,
+                          service="Auth@services.test", payload="AUTH me wrong")
     entry = overlay_entry(sample, folder, symbols, 0, 4)
-    string(sample, symbols["_overlay_slot"],
-           "Auth@services.test AUTH me secret")
+    string(sample, symbols["_overlay_slot"], "OtherServ IDENTIFY me right")
     stub(sample, symbols, UI_STUBS, 0x4320)
     install_send_capture(sample, symbols)
-    pending = bytearray(execute(
-        sample,
-        f"ld hl,$5500\nld ($4200),hl\ncall {entry}",
-        capture_with_nop(symbols), directory, cpu))
-    assert captured(pending) == b"PRIVMSG Auth@services.test :AUTH me secret\r\n"
-    assert pending[symbols["_auth_mode"]] == AUTH_PENDING
-    saved_service = bytes(pending[symbols["_nickserv_nick"]:
-                                  symbols["_nickserv_nick"] + 32])
-    saved_payload = bytes(pending[symbols["_nickserv_pass"]:
-                                  symbols["_nickserv_pass"] + 64])
+    result = execute(sample, f"ld hl,$5500\nld ($4200),hl\ncall {entry}",
+                     capture_with_nop(symbols), directory, cpu)
+    assert captured(result) == b"PRIVMSG OtherServ :IDENTIFY me right\r\n"
+    assert result[symbols["_auth_mode"]] == AUTH_PENDING
+    assert result[symbols["_nickserv_nick"]:symbols["_nickserv_nick"] + 10] == b"OtherServ\0"
+    assert result[symbols["_nickserv_pass"]:symbols["_nickserv_pass"] + 20] == b"IDENTIFY me right\0\0\0"[:20]
+    assert result[symbols["_config_dirty"]] == 0
+    abi(result)
+    print("/login: a new attempt replaces the pending one and is sent")
 
-    string(pending, symbols["_overlay_slot"],
-           "OtherServ OTHER me replacement")
-    pending[0x4200:0x4202] = b"\0\0"
-    result = execute(
-        pending,
-        f"call {entry}",
-        """\
-    ld a,($4200)
-    inc a
-    ld ($4200),a
+
+def private_login_capture(symbols, memory, directory, cpu):
+    """A private IDENTIFY/AUTH/LOGIN on any network is learned, not echoed."""
+    cases = (
+        ("NickServ", "IDENTIFY me secret", True),
+        ("NiCK", "identify me secret", True),
+        ("Q@CServe.quakenet.org", "AUTH me secret", True),
+        ("X@channels.undernet.org", "login me secret", True),
+        ("friend", "hello there", False),
+        ("friend", "identifying", False),
+        ("#room", "IDENTIFY me secret", False),
+    )
+    for target, text, learned in cases:
+        sample = auth_fixture(memory, symbols, mode=AUTH_LEGACY,
+                              service="", payload="")
+        string(sample, 0x5000, target)
+        string(sample, 0x5080, text)
+        string(sample, symbols["_overlay_slot"], "stale")
+        sample[0x4200] = sample[0x4201] = 0
+        jump(sample, symbols["_overlay_exec"], 0x4300)
+        jump(sample, symbols["_irc_send_privmsg"], 0x4310)
+        result = execute(
+            sample,
+            f"ld hl,$5080\npush hl\nld hl,$5000\npush hl\ncall {symbols['_send_private']}",
+            """\
+    pop bc
+    pop de
+    push bc
+    ld hl,$4200
+    inc (hl)
     ret
-    defs $4320-$,0
+    defs $4310-$,0
+    pop de
+    pop hl
+    pop hl
+    push de
+    ld hl,$4201
+    inc (hl)
     ret
 """,
-        directory, cpu)
-    assert result[symbols["_auth_mode"]] == AUTH_PENDING
-    assert result[symbols["_nickserv_nick"]:
-                  symbols["_nickserv_nick"] + 32] == saved_service
-    assert result[symbols["_nickserv_pass"]:
-                  symbols["_nickserv_pass"] + 64] == saved_payload
-    assert result[symbols["_config_dirty"]] == 0
-    assert result[0x4200] == 0, "pending /login emitted a replacement command"
-    abi(result)
-    print("/login: a pending candidate cannot be replaced or retransmitted")
+            directory, cpu)
+        assert result[0x4200] == learned, (target, text, "overlay")
+        assert result[0x4201] == (not learned), (target, text, "plain send")
+        if learned:
+            slot = result[symbols["_overlay_slot"]:symbols["_overlay_slot"] + 64].split(b"\0", 1)[0]
+            assert slot == f"{target} {text}".encode(), slot
+        abi(result)
+    print("Login capture: private IDENTIFY/AUTH/LOGIN to any service goes through /login; other text and channels are sent normally")
 
 
 def pending_disconnect(symbols, memory, directory, cpu):
@@ -1165,6 +1191,8 @@ def main():
         send_modes(symbols, memory, directory, cpu)
         login_overlay(symbols, memory, args.folder, directory, cpu)
         login_pending_guard(symbols, memory, args.folder, directory, cpu)
+        private_login_capture(symbols, memory, directory, cpu)
+        login_empty_args(symbols, memory, directory, cpu)
         login_validation(symbols, memory, args.folder, directory, cpu)
         id_overlay(symbols, memory, args.folder, directory, cpu)
         id_overlay_long_payload(symbols, memory, args.folder, directory, cpu)

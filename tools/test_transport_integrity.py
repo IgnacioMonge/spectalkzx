@@ -93,19 +93,36 @@ def cts_backpressure():
     assert got == lines
 
 
+def gap_marker_model():
+    # Next marks a UART gap with NUL: queued complete lines survive, the line
+    # holding the marker is dropped and parsing resumes after the next LF.
+    lines, partial, skip = [], bytearray(), False
+    for byte in b"one\ntwo\nthr" + bytes([0]) + b"ee-lost-tail\nfour\n":
+        if byte == 0:
+            skip = True
+        elif byte == 10:
+            if partial and not skip:
+                lines.append(bytes(partial))
+            partial.clear()
+            skip = False
+        elif not skip:
+            partial.append(byte)
+    assert lines == [b"one", b"two", b"four"]
+
+
 def hardware_fifo_gap():
+    # One fault drops the pending ring and drains the FIFO in a single pass.
     rx = Receiver()
     receive(rx, b"PING :head")
     fifo = deque(b"old\n" * 40 + b"damaged")
-    calls = 0
-    while fifo:
-        rx.gap()
-        for _ in range(min(32, len(fifo))):
-            fifo.popleft()
-        calls += 1
-        assert rx.read() == []
-    assert calls > 1
-    assert receive(rx, b"tail\nPING :safe\n") == [b"PING :safe"]
+    rx.gap()
+    reads = 0
+    while fifo and reads < 1024:
+        fifo.popleft()
+        reads += 1
+    assert not fifo and rx.read() == []
+    # Traffic keeps arriving: no fault state may persist and mute it.
+    assert receive(rx, b"tail\nPING :safe\nPING :next\n") == [b"PING :safe", b"PING :next"]
 
 
 def tx_fail_stop():
@@ -156,8 +173,11 @@ def source_contract():
         assert "out (c), l or a ret" in driver
     driver = code("asm/next_uart.asm")
     assert driver.count("call _next_uart_status") == 2
-    assert "and 0xE4" in driver and "ld d, 32" in driver
-    assert "call _rx_discard_pending" in driver
+    assert "and 0xE4" in driver and "ld de, 1024" in driver
+    assert "next_rx_fault" not in driver  # no latch: bursts must not mute RX
+    assert "call next_uart_mark_gap" in driver and "ld (hl), 0" in driver
+    parser = code("asm/spectalk_asm/20_rx_ring_uart.asm")
+    assert "IFDEF SPECTALK_NEXT or a jr z, trln_overflow_state ENDIF" in parser
     assert "and 0xFE or 0x40 ret" in driver
     release = helpers.split("_overlay_rx_release:", 1)[1].split("EXTERN", 1)[0]
     assert "IFNDEF SPECTALK_NEXT ld hl, (_rb_head)" in release
@@ -166,6 +186,12 @@ def source_contract():
     assert "ld (_rx_overflow), a" not in exit_body
     app = (ROOT / "src/spectalk.c").read_text(encoding="utf-8")
     assert "uart_tx_failed == 1" in app and "uart_tx_failed = 2;" in app
+    wait = app.split('        while (1) {\n#ifdef SPECTALK_NEXT', 1)[1].split('#endif', 1)[0]
+    native, other = wait.split('#else')
+    assert 'frame_wait_drain();' in native and 'frame_wait();' in other
+    header = (ROOT / 'include/spectalk.h').read_text(encoding='utf-8')
+    budget = header.split('#define DRAIN_NORMAL    0', 1)[1]
+    assert '#else\n#define DRAIN_NORMAL    32\n#endif' in budget
     assert "uart_tx_failed ? STATE_DISCONNECTED : STATE_WIFI_OK" in app
     # Classic enables session CTS only on the AT-probe timeout path.
     assert 'S_AT_UART_CTS[] = "AT+UART_CUR=115200,8,1,0,2"' in app
@@ -181,6 +207,7 @@ def source_contract():
 if __name__ == "__main__":
     loss_boundaries()
     cts_backpressure()
+    gap_marker_model()
     hardware_fifo_gap()
     tx_fail_stop()
     source_contract()

@@ -7,7 +7,10 @@ EXTERN _rb_push
 EXTERN _overlay_mode
 EXTERN _uart_tx_failed
 EXTERN _uart_tx_fail
-EXTERN _rx_discard_pending
+EXTERN _rx_overflow
+EXTERN _rb_head
+EXTERN _rb_tail
+EXTERN _ring_buffer
 PUBLIC _next_uart_status
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
@@ -106,8 +109,11 @@ next_uart_send_ready:
     ret
 
 ; Read all clear-on-read error flags at every status access.
-; On a fault, discard through FIFO-empty before exposing bytes again. Each
-; call consumes at most 32 bytes; a persistent fault survives budget exits.
+; On a fault, mark the gap in the ring, then drain the hardware FIFO in one
+; bounded pass. Reads (about 70 T-states each) outpace
+; 115200-baud arrivals, so the FIFO empties and the bytes around the gap are
+; gone before reception resumes. No fault state survives the call: a latch
+; cleared only at FIFO-empty muted all reception during MOTD/NAMES bursts.
 ; BC=$133B. Preserves BC/DE/HL, returns status with RX hidden and bit6 set
 ; whenever the caller must reload cached ring indices after invalidation.
 ; https://wiki.specnext.dev/UART_TX (bits 7/6/5/2)
@@ -116,44 +122,68 @@ _next_uart_status:
     push af
     and 0xE4
     jr nz, next_uart_rx_fault
-    ld a, (next_rx_fault)
-    or a
-    jr nz, next_uart_rx_fault
     pop af
     ret
 next_uart_rx_fault:
+    pop af
     push hl
-    call _rx_discard_pending
-    pop hl
-    ld a, 1
-    ld (next_rx_fault), a
-    pop af
     push de
-    ld d, 32
+    call next_uart_mark_gap
+    ld de, 1024             ; two FIFOs: FIFO-empty ends the pass first
 next_uart_rx_flush:
-    bit 0, a
-    jr z, next_uart_rx_empty
+    in a, (c)
+    rrca                    ; RX-ready -> carry
+    jr nc, next_uart_rx_hidden
     inc b
-    in a, (c)
+    in a, (c)               ; drop one byte
     dec b
-    in a, (c)
-    dec d
+    dec de
+    ld a, d
+    or e
     jr nz, next_uart_rx_flush
-    jr next_uart_rx_hidden
-next_uart_rx_empty:
-    push af
-    xor a
-    ld (next_rx_fault), a
-    pop af
 next_uart_rx_hidden:
+    in a, (c)
     pop de
+    pop hl
     and 0xFE
     or 0x40
     ret
 
-SECTION bss_user
-next_rx_fault: defs 1
-SECTION code_user
+; Append a NUL gap marker (IRC never sends NUL) so complete lines already
+; queued survive: the parser drops the line holding the marker and resumes
+; after the next LF. A full ring overwrites its newest byte instead.
+; _rx_overflow also tells raw-UDP readers that a gap occurred.
+; Clobbers AF/DE/HL; preserves BC (the UART port).
+next_uart_mark_gap:
+    ld a, 1
+    ld (_rx_overflow), a
+    ld de, (_rb_head)
+    ld hl, (_rb_tail)
+    dec hl
+    ld a, h
+    and 0x07
+    ld h, a                 ; HL = (tail - 1) & 0x7FF
+    or a
+    sbc hl, de              ; Z: ring full
+    ex de, hl               ; HL = head, flags kept
+    jr nz, nmg_room
+    dec hl
+    ld a, h
+    and 0x07
+    ld h, a                 ; newest queued byte
+    jr nmg_write
+nmg_room:
+    ld d, h
+    ld e, l
+    inc hl
+    res 3, h
+    ld (_rb_head), hl
+    ex de, hl               ; HL = old head
+nmg_write:
+    ld de, _ring_buffer
+    add hl, de
+    ld (hl), 0
+    ret
 
 next_uart_set_baud_115200:
     di

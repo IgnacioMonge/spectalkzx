@@ -356,9 +356,19 @@ _mention_beep:
     ld a, (_beep_enabled)
     or a
     ret z                   ; Si beep_enabled == 0, salir
+IFDEF SPECTALK_NEXT
+    call sound_speed_35
+    push de
+    ld hl, 2500
+    ld c, 0x18
+    call _beep_core
+    pop de
+    jr sound_speed_restore
+ELSE
     ld hl, 2500             ; M?s largo
     ld c, 0x18              ; Tono m?s grave
     jr _beep_core
+ENDIF
 
 ; -----------------------------------------------------------------------------
 ; void key_click(void)  -- micro-pulse keyclick (short blocking pulse)
@@ -369,16 +379,52 @@ _key_click:
     ld a, (_keyclick_enabled)
     or a
     ret z
+IFDEF SPECTALK_NEXT
+    ; NextZXOS click: the ROM BEEPER with HL=$00C8 and PIP=0 plays one cycle,
+    ; about 876 T per half at 3.5 MHz. Played here without the ROM, whose
+    ; BEEPER re-enables interrupts and takes the border from BORDCR.
+    call sound_speed_35
+    ld b, 67
+ELSE
+    ld b, 30
+ENDIF
     ld a, (_theme_attrs + TA_BORDER)
     and 0x07                ; preserve theme border colour
     or 0x18                 ; MIC + EAR on
     out (0xFE), a
-    ld b, 30
 kclick_w:
     djnz kclick_w
     xor 0x10                ; EAR off, keep MIC + border
     out (0xFE), a
+IFDEF SPECTALK_NEXT
+    jr sound_speed_restore
+
+; Beeper sounds are timed in T-states, so they are played at 3.5 MHz on any
+; Next CPU speed and the selected speed is restored afterwards.
+; sound_speed_35: E = previous NextReg $07 speed. Uses A, BC.
+sound_speed_35:
+    ld bc, 0x243B
+    ld a, 0x07
+    out (c), a
+    inc b
+    in a, (c)
+    and 0x03
+    ld e, a
+    xor a
+    out (c), a              ; 3.5 MHz
     ret
+
+; In: E = speed saved by sound_speed_35. Uses A, BC.
+sound_speed_restore:
+    ld bc, 0x243B
+    ld a, 0x07
+    out (c), a
+    inc b
+    out (c), e
+    ret
+ELSE
+    ret
+ENDIF
 
 ; -----------------------------------------------------------------------------
 ; void check_caps_toggle(void)

@@ -111,10 +111,19 @@ def prove_uart_service_contract():
     screen = ASM.read_text(encoding="utf-8")
     render = (ASM.parent / "30_rendering.asm").read_text(encoding="utf-8")
     output = MAIN_OUTPUT_ASM.read_text(encoding="utf-8")
-    # Receiving traffic must not become synchronous work inside the renderer.
+    # Classic/Spectranext keep their renderer; only Next services its finite FIFO.
     assert "render_poll_rx" not in screen + render + output
     scroll = screen.split("_scroll_main_zone:", 1)[1].split("; void main_newline", 1)[0]
-    assert "_net_pump_rx" not in scroll
+    # Native Next copies each scroll block with the zxnDMA (4 T per byte), so
+    # the whole scroll fits the FIFO budget without draining inside it.
+    assert "_net_pump_rx" not in words(scroll)
+    assert words("""ifdef spectalk_next ld bc, ZXN_DMA_PORT ld a, 0x83 out (c), a
+        ld a, 0x54 out (c), a ld a, 0x02 out (c), a ld a, 0x50 out (c), a
+        ld a, 0x02 out (c), a ld a, 0x82 out (c), a endif di""") in words(scroll)
+    assert words("""zxn_dma_port equ 0x006b smz_copy16n: push bc ld bc, zxn_dma_port
+        ld a, 0x7d out (c), a out (c), l out (c), h pop hl out (c), l out (c), h
+        ld a, 0xad out (c), a out (c), e out (c), d ld a, 0xcf out (c), a
+        ld a, 0x87 out (c), a ret else""") in words(scroll)
     assert "_net_pump_rx" not in render + output
     assert "call _net_pump_rx" in screen.split("_main_newline:", 1)[1]
 

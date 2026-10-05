@@ -2,7 +2,7 @@
 
 Only user-visible changes and compatibility notes are listed here.
 
-## [1.4.1] - Triton - Unreleased
+## [1.4.1] - Triton - 2026-10-05
 
 ### Added
 
@@ -12,10 +12,14 @@ Only user-visible changes and compatibility notes are listed here.
   skips. Configuration and bookmarks still live in local cartridge storage.
   The guided installer, for starting without a network, is now at
   `https://ignaciomonge.github.io/SpecTalkZX/install/`.
-- `/login service command [arguments]` learns an IRC service login, such as
-  NickServ or QuakeNet Q, once the service confirms it. The login is saved
-  with the bookmark or current configuration and sent automatically on the
-  next connection. Only reusable credentials are supported.
+- Service logins are learned on any network. A private `IDENTIFY`, `AUTH` or
+  `LOGIN` sent to a service, with `/msg`, from its query window or with
+  `/login service command`, is remembered once the server marks the nick
+  identified (user mode `+r` or numeric 900), whatever language the service
+  uses; a rejected password is never saved. It is stored with the bookmark or
+  current configuration and sent automatically after the MOTD of the next
+  connection. The password is no longer shown on screen, and a new attempt
+  replaces a pending one. Only reusable credentials are supported.
 - Native Next About shows a new animated colour globe and wordmark over a
   starfield.
 
@@ -31,11 +35,29 @@ Only user-visible changes and compatibility notes are listed here.
 - Text draws faster: about 25% for chat lines and about 15% for single
   characters such as nicks and timestamps.
 
+- `SPECTALK.DAT` uses a new font layout. Install the TAP or NEX, `SPECTALK.OVL`
+  and `SPECTALK.DAT` files from the same release.
+- Existing configuration and bookmark files need no migration. The new
+  optional keys `authcmd` and `bookmark` are written by `/login` and the
+  bookmark manager.
+- Classic needs a ZX-Uno-compatible UART, such as divTIESUS, whose RTS line
+  reaches the ESP CTS input. SpecTalkZX enables ESP CTS flow control for the
+  session when it is missing.
+- Spectranext requires cartridge firmware `0.9-6fc153a3` or later. A 1.4.0
+  installation keeps working; reinstall from `/install/` to update it.
+
 ### Fixed
 
-- Heavy IRC traffic no longer drops blocks of up to 2 KB of received text
-  when the receive buffer fills. On Classic the ESP holds the data until there
-  is room; native Next keeps it in its hardware buffer for longer.
+- Classic holds incoming IRC data in the ESP when the receive buffer fills,
+  avoiding discarded blocks of up to 2 KB.
+- Native Next keeps up with larger MOTD and NAMES bursts: it receives during
+  frame waits, drains up to 255 UART bytes per call, scrolls the chat with the
+  Next's DMA (more than twice as fast) and parses bigger blocks while a burst
+  is queued. Detected UART overflows discard damaged lines without joining
+  their fragments or leaving reception muted.
+- Native Next plays the mention beep with the same pitch and length at any
+  CPU speed, and the key click now sounds like the NextZXOS click instead of
+  a barely audible tick.
 - Classic now works with an ESP whose CTS flow control is disabled, for
   example after a factory reset. Previously every ESP initialization attempt
   failed; now a failed attempt enables CTS for the current session, so the
@@ -56,35 +78,6 @@ Only user-visible changes and compatibility notes are listed here.
 - Quit, mode, channel and disconnect notifications no longer show garbled
   text. Friends found in a channel's name list are no longer missed while
   another notification is on screen.
-
-### Release verification
-
-- Classic: TAP **36,471 bytes**; BSS ends at **0xF483**, leaving **125 bytes**
-  before the receive ring; overlays **2045 / 1902 / 2007 / 2047 / 2008 / 1983 /
-  2039 / 1980 bytes**; packed `SPECTALK.OVL` **16,075 bytes**.
-- Native Next: `SPECTALK.NEX` **410,112 bytes**; resident **36,238 bytes**; BSS
-  ends at **0xF3F3**, leaving **269 bytes**; overlays **2028 / 2429 / 2015 /
-  2047 / 2713 / 1996 / 2039 / 1957 bytes**; embedded data **16,829 bytes**.
-- Spectranext: TAP **35,405 bytes**; BSS ends at **0xF035**, leaving **1,227
-  bytes**; overlays **2042 / 1919 / 831 / 2523 / 3244 / 2114 / 2039 / 1994
-  bytes**; packed `SPECTALK.OVL` **17,026 bytes**.
-- Spectranext web resource: `SPECTALK.TAP` **42,361 bytes** with its loading
-  screen, `SPECTALK.OVL` **17,026 bytes**, `SPECTALK.DAT` **16,829 bytes**.
-  Installer: `SPCTX.INS` **3,313 bytes**, `SPCTX.PKG` **45,048 bytes**,
-  `SPCTX.SCR` **6,912 bytes**.
-
-### Compatibility
-
-- `SPECTALK.DAT` uses a new font layout. Install the TAP or NEX, `SPECTALK.OVL`
-  and `SPECTALK.DAT` files from the same release.
-- Existing configuration and bookmark files need no migration. The new
-  optional keys `authcmd` and `bookmark` are written by `/login` and the
-  bookmark manager.
-- Classic needs a ZX-Uno-compatible UART, such as divTIESUS, whose RTS line
-  reaches the ESP CTS input. SpecTalkZX enables ESP CTS flow control for the
-  session when it is missing.
-- Spectranext requires cartridge firmware `0.9-6fc153a3` or later. A 1.4.0
-  installation keeps working; reinstall from `/install/` to update it.
 
 ## [1.4.0] - Proteus - 2026-09-04
 

@@ -56,8 +56,9 @@ de configuración.
 
 - **Arranque desde la web en Spectranext**: una URL inicia el cliente, sin
   instalar nada.
-- **Acceso automático a servicios**: `/login` aprende el acceso a NickServ o a
-  Q de QuakeNet cuando el servicio lo confirma y lo envía en cada conexión.
+- **Acceso automático a servicios**: el acceso enviado a NickServ, NiCK, Q o
+  cualquier otro servicio se aprende cuando el servicio responde y se envía en
+  cada conexión.
 - **Firme ante el tráfico intenso**: los canales concurridos y las listas
   largas de nombres ya no pierden bloques de texto recibido.
 - **Texto más rápido**: las líneas de chat se dibujan un 25 % más rápido.
@@ -338,9 +339,8 @@ red de demostración ficticia.
 
 - Soporta el flujo IRC habitual: `JOIN`, `PART`, `QUIT`, `NICK`, `PRIVMSG`, `NOTICE`, `TOPIC`, `MODE`, `KICK`, `WHO`, `WHOIS`, `LIST` y `NAMES`.
 - Soporta CTCP `VERSION`, `PING`, `TIME` y `ACTION`.
-- NickServ se puede usar manualmente con `/id` o automáticamente con `nickpass=`.
+- NickServ se puede usar manualmente con `/id` o automáticamente con `nickpass=`, que se envía tras el MOTD.
 - `nickserv=` permite fijar el nick del servicio si la red no usa el nombre estándar `NickServ`.
-- La identificación automática solo acepta peticiones de ese nick configurado, o de `NickServ` por defecto; otros nombres requieren indicar `nickserv=`.
 - Los amigos se siguen con `!friend`; los resultados de JOIN/NAMES generan notificaciones compactas.
 - Los nicks ignorados se gestionan con `/ignore`, incluido el borrado con `-nick`.
 - El estado de ausencia admite `/away` manual y `!autoaway` por inactividad.
@@ -349,35 +349,41 @@ red de demostración ficticia.
 
 ### Acceso a servicios
 
-`/login servicio comando [argumentos]` envía `PRIVMSG <servicio> :<comando>
-[argumentos]` y, cuando el servicio lo confirma, lo recuerda como tu acceso
-para las siguientes conexiones:
+Identifícate como siempre en cualquier red y SpecTalkZX aprende cómo lo has
+hecho:
 
 ```text
-/login NickServ IDENTIFY cuenta clave
-/login Q@CServe.quakenet.org AUTH cuenta clave
+/msg NickServ IDENTIFY cuenta clave
+/msg NiCK IDENTIFY cuenta clave
+/msg Q@CServe.quakenet.org AUTH cuenta clave
 ```
 
-- **Confirmación.** El acceso solo se aprende con un NOTICE directo de ese
-  servicio a tu nick actual con una respuesta positiva reconocida, o con el
-  numeric `900` para ese nick. `already identified`, los errores y los avisos
-  de otros remitentes o dirigidos a otro nick no cuentan. Una respuesta no
-  reconocida deja el acceso pendiente, y `!save` y `S:STORE` lo rechazan.
+- **Detección.** Un mensaje privado cuya primera palabra es `IDENTIFY`, `AUTH`
+  o `LOGIN`, en mayúsculas o minúsculas, es un acceso, tanto si lo escribes con
+  `/msg` como en la ventana privada del servicio. Se envía sin mostrar la
+  contraseña en pantalla. `/login servicio comando [argumentos]` hace lo mismo
+  con cualquier otra palabra de comando.
+- **Confirmación.** Lo confirma el servidor, no el texto del servicio: el modo
+  `+r` en tu nick (UnrealIRCd, InspIRCd, ircu, Hybrid, IRC-Hispano) o el
+  numeric `900` (Solanum, Libera). Una contraseña rechazada no produce
+  ninguno, así que nunca se guarda. Hasta entonces el acceso queda pendiente,
+  y `!save` y `S:STORE` lo rechazan.
 - **Guardado.** Un acceso confirmado se guarda automáticamente: en el marcador
   desde el que se cargó, o en la configuración actual tras una conexión manual
   con `/server`, donde `S:STORE` puede asociarlo a un marcador. Si falla la
   escritura, se informa y queda pendiente de un `!save` manual.
-- **Siguiente conexión.** El acceso guardado se envía una vez, después del
-  MOTD.
-- **Reintentos.** Mientras un acceso está pendiente, otro `/login` no lo
-  sustituye. Si falla o no se reconoce, desconecta antes de volver a
-  intentarlo. Un acceso pendiente se descarta al desconectar; el último
-  confirmado permanece en disco y vuelve al recargar su marcador o reiniciar.
+- **Siguiente conexión.** El acceso guardado, o `nickpass=`, se envía una vez
+  después del MOTD. El autojoin espera a `+r` o `900`, o 5 segundos si no
+  llega ninguno.
+- **Reintentos.** Un acceso nuevo sustituye al pendiente, así que una
+  contraseña mal escrita se corrige al momento. Un acceso pendiente se descarta
+  al desconectar; el último confirmado permanece en disco y vuelve al recargar
+  su marcador o reiniciar.
 - **Límites.** Un destino de servicio de hasta 31 caracteres y un comando de
   hasta 63; se rechazan canales, varios destinos y el carácter `|`. El comando
   se repite literalmente y se guarda en texto plano en la configuración y los
   marcadores, así que solo funcionan credenciales reutilizables. No se admiten
-  SASL, CertFP, `PASS` IRC ni códigos OTP/TOTP cambiantes.
+  SASL, CertFP, `PASS` IRC, `/raw` ni códigos OTP/TOTP cambiantes.
 - `/id` y `nickpass=` siguen disponibles como ruta clásica de IDENTIFY.
 
 ---
@@ -423,7 +429,7 @@ Los comandos de activación sin argumento alternan su estado; también aceptan
 | `/nick [nombre]` | | Muestra o cambia nick |
 | `/pass [password\|clear\|none]` | | Muestra o fija la contraseña guardada; `clear`/`none` la borran para la próxima conexión |
 | `/id [password]` | | Identifica con NickServ o servicio configurado |
-| `/login servicio comando [argumentos]` | | Envía un comando de acceso al servicio y espera confirmación |
+| `/login servicio comando [argumentos]` | | Envía cualquier comando de acceso a un servicio; su respuesta lo confirma |
 | `/join canal\|#canal\|&canal` | `/j` | Entra en un canal sin prefijo o con `#` o `&` |
 | `/part [#canal\|&canal] [mensaje]` | `/p` | Sale del canal actual o del canal `#`/`&` indicado |
 | `/msg nick texto` | `/m` | Envía un mensaje privado |

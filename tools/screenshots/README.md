@@ -31,3 +31,24 @@ python tools/screenshots/scr2png.py packaging/spectranext/loading.scr images/sna
 `scr2png.py` and `bmp2png.py` produce the gallery format: the 256x192 screen
 scaled 2.5x with box filtering, centred on a 682x520 black canvas.
 `python tools/screenshots/test_scr2png.py` checks that geometry.
+
+## UART burst measurements
+
+`tools/motd_probe.py --port 6667 --lines 150` replaces `irc_fake.py` for
+MOTD/NAMES burst checks (run only one server on the port). It records 30 MOTD
+and 12 NAMES PING marks, missing replies and corrupted PONG tokens in
+`motd_probe2_results.txt`. A valid run requires `JOIN sent`, denominators 30/12
+and `CORRUPT 0`; a session that never registers is not a passing measurement.
+
+For the emulator, select 3.5 MHz before autoconnection:
+
+```sh
+python tools/screenshots/shots.py next BUILD \
+  'zrcp:tbblue-set-register 7 0' 'zrcp:tbblue-get-register 7' wait:90
+```
+
+The installed ZXESPEmu ZEsarUX 13.0 UART bridge does **not** emulate a finite
+Next RX FIFO, serial arrival timing or overflow flags: it reads TCP directly, so
+emulator runs never lose data and only validate application integration. Burst
+integrity needs real hardware. To compare builds without hardware, measure the
+per-line cost of the linked image with `tools/next_rx_throughput.py build/next`.

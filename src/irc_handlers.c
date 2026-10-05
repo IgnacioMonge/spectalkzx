@@ -39,6 +39,7 @@ extern uint8_t names_friend_pos;
 // Forward decl (used by selective numeric handlers)
 static void h_numeric_default(void);
 static void session_autoidentify_done(void);
+static void auth_identified(void);
 extern uint8_t names_render_grid(char *p) __z88dk_fastcall;
 extern uint8_t names_count_line(char *p) __z88dk_fastcall;
 extern uint8_t friend_initial_match(char c) __z88dk_fastcall;
@@ -336,6 +337,9 @@ static void h_mode(void)
         if (*modes) {
             if (*modes == ':') modes++;
             st_copy_n(user_mode, modes, sizeof(user_mode));
+            /* +r: the server marks this nick identified (Unreal, InspIRCd,
+               ircu, Hybrid, IRC-Hispano). */
+            if (*modes == '+' && strchr(modes, 'r')) auth_identified();
             draw_status_bar();
         }
         return;
@@ -414,24 +418,21 @@ static uint8_t auth_service_sender(void)
     return ok;
 }
 
-static uint8_t auth_word_boundary(uint8_t c) __z88dk_fastcall
-{
-    return (uint8_t)((c | 32) - 'a') > 25;
-}
-
-static uint8_t auth_match(const char *needle) __z88dk_fastcall
-{
-    const char *hit = st_stristr(pkt_txt, needle);
-    return hit && (hit == pkt_txt || auth_word_boundary(hit[-1])) &&
-           auth_word_boundary(hit[st_strlen(needle)]);
-}
-
 static void auth_confirm(void)
 {
     if (auth_mode == AUTH_PENDING) {
         auth_mode = AUTH_SAVE;
         config_dirty = 1;
     }
+}
+
+/* The server reports this nick identified (+r or numeric 900), whatever the
+   service said: release autojoin and promote a pending login, which the main
+   loop then saves. A rejected password never gets here, so it is not saved. */
+static void auth_identified(void)
+{
+    auth_confirm();
+    session_autoidentify_done();
 }
 
 static void h_privmsg_notice(void)
@@ -451,38 +452,6 @@ static void h_privmsg_notice(void)
 
     uint8_t is_notice = (pkt_cmd[0] == 'N');
     uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
-    // PD2: inlined is_ident_success_notice — single caller
-    uint8_t ident_ok = 0;
-    uint8_t auth_sender = is_notice && st_stricmp(target, irc_nick) == 0 && auth_service_sender();
-    if (auth_sender && !st_stristr(pkt_txt, "not ")) {
-        /* ponytail: known acknowledgements only; extend for verified service replies. */
-        static const char *const accepted[] = {
-            "now identified", "now logged in", "password accepted",
-            "authentication successful", "successfully identified"
-        };
-        uint8_t i;
-        for (i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
-            if (auth_match(accepted[i])) {
-                ident_ok = 1;
-                auth_confirm();
-                break;
-            }
-        }
-        if (!ident_ok && st_stristr(pkt_txt, "already identified")) ident_ok = 1;
-    }
-    if (ident_ok) session_autoidentify_done();
-
-    // Only the configured service (default NickServ) may request the password.
-    if (nickserv_pass[0] && auth_mode == AUTH_LEGACY && !ident_ok && auth_sender &&
-        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT) && st_stristr(pkt_txt, "identify")) {
-        {
-            send_identify(nickserv_pass);
-            autojoin_defer_flags |= (AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
-            autojoin_ident_grace = 0;
-            notify("Auto-identifying...", ATTR_MSG_SYS);
-            return;
-        }
-    }
 
     // Durante búsqueda activa, NOTICE del servidor puede ser rate limit.
     // Filtrar drenaje (state=1) para evitar basura de búsqueda cancelada anterior.
@@ -619,11 +588,7 @@ static void h_privmsg_notice(void)
             current_attr = ATTR_MSG_NICK;
             main_puts2(pkt_usr, S_COLON_SP);
             current_attr = ATTR_MSG_TOPIC;
-            if (ident_ok) {
-                main_print_wrapped_clean(pkt_txt);
-            } else {
-                deferred_wrap_start(pkt_txt);
-            }
+            deferred_wrap_start(pkt_txt);
             return;
         }
     }
@@ -634,8 +599,7 @@ static void h_privmsg_notice(void)
             main_print_time_prefix();
             current_attr = ATTR_MSG_SERVER;
             main_puts("*** ");
-            if (ident_ok) main_print_wrapped_clean(pkt_txt);
-            else deferred_wrap_start(pkt_txt);
+            deferred_wrap_start(pkt_txt);
         } else {
             current_attr = ATTR_MSG_SERVER;
             main_print(pkt_txt);
@@ -1360,28 +1324,24 @@ static void h_numeric_1(void)
 
 static void h_logged_in(void)
 {
-    /* Learn from the server's explicit account acknowledgement. Legacy autojoin
-       still waits for the visible acceptance NOTICE after 900. */
-    if (st_stricmp(irc_param(0), irc_nick) == 0) {
-        auth_confirm();
-        if (auth_mode >= AUTH_LEARNED) session_autoidentify_done();
-    }
+    /* RPL_LOGGEDIN: Solanum (Libera) reports identification this way. */
+    if (st_stricmp(irc_param(0), irc_nick) == 0) auth_identified();
 }
 
 // End of MOTD / no MOTD: delayed autojoin, then friend ISON.
 static void h_motd_done(void)
 {
     autojoin_defer_flags |= AUTOJOIN_MOTD_DONE;
-    if (auth_mode >= AUTH_LEARNED && nickserv_pass[0] &&
+    /* Send the stored login once, legacy nickpass included; +r or 900 then
+       ends the wait, or the grace period does if the server never says so. */
+    if (auth_mode != AUTH_PENDING && nickserv_pass[0] &&
         !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
         send_identify(nickserv_pass);
         autojoin_defer_flags |= AUTOJOIN_IDENT_SENT;
         if (autojoin) autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
     }
-    if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
-        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
+    if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)
         autojoin_ident_grace = AUTOJOIN_IDENT_GRACE_FRAMES;
-    }
     session_autojoin_try();
     irc_check_friends_online();
 }
@@ -1937,6 +1897,12 @@ void process_irc_data(void)
         {
             uint16_t current_budget = RX_TICK_PARSE_BYTE_BUDGET;
             if (pagination_active) current_budget = RX_TICK_PARSE_BYTE_BUDGET * 8;
+#ifdef SPECTALK_NEXT
+            /* No CTS: while a burst is queued and no key is held, parse four
+               times as much between frame waits, which idle until the next
+               interrupt. */
+            else if (max_lines == 32) current_budget = RX_TICK_PARSE_BYTE_BUDGET * 4;
+#endif
             bytes_this_call += (rx_last_len + 1);
             if (bytes_this_call >= current_budget) break;  // FIX P0-2: break en vez de return
         }

@@ -9,7 +9,8 @@ port=6667
 pass=
 nickpass=
 nickserv=NickServ
-; authcmd= is written by /login once the service confirms it (plaintext).
+; authcmd= is learned from a private IDENTIFY/AUTH/LOGIN once the server
+; marks the nick identified (+r or 900); stored as plaintext.
 
 autoconnect=0
 autojoin=0

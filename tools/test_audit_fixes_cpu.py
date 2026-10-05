@@ -122,12 +122,12 @@ def auth(symbols, memory, directory, cpu):
     or a
     ret""", directory, cpu)
         end = int.from_bytes(result[0x4200:0x4202], "little")
-        expected = f"PRIVMSG {service or 'NickServ'} :IDENTIFY TEST_ONLY\r\n".encode() if allowed else b""
-        assert result[0x5500:end] == expected, ("untrusted auto-identify", service, sender, command, target, result[0x5500:end])
+        # The stored login is sent at end of MOTD; no NOTICE, trusted or not,
+        # makes SpecTalkZX send the password.
+        assert result[0x5500:end] == b"", ("NOTICE triggered identify", service, sender, command, target, result[0x5500:end])
         assert result[symbols["_nickserv_nick"]:symbols["_nickserv_nick"] + len(service) + 1] == service.encode() + b"\0"
-        if not allowed:
-            abi(result)
-    print("Auto-identify: trusted default/override, case folding and spoof rejection OK")
+        abi(result)
+    print("Auto-identify: no NOTICE from any sender sends the password")
 
 
 def timeout(symbols, memory, directory, cpu):

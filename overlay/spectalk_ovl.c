@@ -305,7 +305,7 @@ void login_cmd_ovl(void)
     char *target = (char *)overlay_slot;
     char *text = split_at_space(target);
     char *p;
-    if (auth_mode == AUTH_PENDING) { ui_err("Login pending"); goto done; }
+    /* A new attempt replaces a pending one, e.g. after a mistyped password. */
     if (!text || !*target || !*text ||
         st_strlen(target) >= AUTH_SERVICE_SIZE ||
         st_strlen(text) >= AUTH_COMMAND_SIZE ||
