@@ -15,19 +15,22 @@
   img { width: 100%; max-width: 682px; image-rendering: pixelated; border: 0; }
   .muted { color: #8a8a8a; }
 </style>
-<h1>SpecTalkZX 1.4.1 Triton</h1>
+<h1>SpecTalkZX 1.4.2 Triton</h1>
 <div class="stripes"></div>
 <p>IRC client for the ZX Spectrum, Spectrum Next and the Spectranext cartridge.</p>
 <img src="https://raw.githubusercontent.com/IgnacioMonge/spectalkzx/main/images/snapshot-run-from-web.png"
      alt="SpecTalkZX loading screen on Spectranext">
 
-<h2>Spectranext</h2>
+<h2>Spectranext: run from the web</h2>
 <p>In the Spectranext menu choose <strong>Load Resource URL</strong> and enter<br>
 <code>https://ignaciomonge.github.io/spectalkzx/</code></p>
-<p>The guided installer writes SpecTalkZX to cartridge storage and starts it.
-Afterwards start <code>SPCTX.ZX</code> from local storage; run the installer
-again to update. Configuration and bookmarks stay under <code>/CFG</code>.</p>
-<p class="muted">Needs cartridge firmware 0.9-6fc153a3 or later.</p>
+<p>SpecTalkZX starts without installing anything. Configuration and bookmarks stay in
+the cartridge under <code>/CFG</code>.</p>
+
+<h2>Spectranext: install for use without the web</h2>
+<p>Enter <code>https://ignaciomonge.github.io/spectalkzx/install/</code> instead, then start
+<code>SPCTX.ZX</code> from local storage.</p>
+<p class="muted">Both options need cartridge firmware 1.0 or later; older firmware shows FIRMWARE OUTDATED.</p>
 
 <h2>Classic ZX and Spectrum Next</h2>
 <p>Download the TAP set or the NEX from the
