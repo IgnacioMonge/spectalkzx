@@ -1,8 +1,8 @@
 {
   "resource": "SpecTalkZX",
   "stem": "SPCTX",
-  "version": "1.4.1",
-  "minimum_firmware": "0.9-6fc153a3",
+  "version": "1.4.2",
+  "minimum_firmware": "1.0",
   "screen": {
     "source": "loading.scr",
     "placement": "bottom"

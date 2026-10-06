@@ -4,16 +4,22 @@ Only user-visible changes and compatibility notes are listed here.
 
 ## [Unreleased]
 
+## [1.4.2] - Triton - 2026-10-06
+
 ### Changed
 
-- Spectranext's main address, `https://ignaciomonge.github.io/spectalkzx/`,
-  installs SpecTalkZX again. Running it straight from the web is withdrawn
-  for now: on the cartridge's HTTPS mounts the program cannot reuse its data
-  file after startup and stops with `DAT NOT FOUND!`. `/install/` keeps
-  working.
+- Spectranext now needs cartridge firmware 1.0 or later, including for
+  installed copies. Older firmware stops at startup with
+  `FIRMWARE OUTDATED: SEE README` instead of failing later; the package
+  metadata states the same minimum.
 
 ### Fixed
 
+- Spectranext runs SpecTalkZX straight from the web over HTTPS. **Load
+  Resource URL** with `https://ignaciomonge.github.io/spectalkzx/` starts it
+  without installing; firmware 1.0 fixes the cartridge seek that stopped 1.4.1
+  with `DAT NOT FOUND!`. The installer is at
+  `https://ignaciomonge.github.io/spectalkzx/install/`.
 - Corrected the Spectranext GitHub Pages URLs after the repository rename to
   `spectalkzx`.
 
@@ -241,6 +247,7 @@ by the cartridge package format. Classic ZX is unchanged.
 Earlier releases are available on the
 [GitHub Releases page](https://github.com/IgnacioMonge/SpecTalkZX/releases).
 
+[1.4.2]: https://github.com/IgnacioMonge/spectalkzx/releases/tag/v1.4.2
 [1.4.1]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1
 [1.4.0]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0
 [1.3.9.1]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9.1
@@ -248,4 +255,4 @@ Earlier releases are available on the
 [1.3.8]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.8
 [1.3.7]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.7
 
-[Unreleased]: https://github.com/IgnacioMonge/spectalkzx/compare/v1.4.1...main
+[Unreleased]: https://github.com/IgnacioMonge/spectalkzx/compare/v1.4.2...main

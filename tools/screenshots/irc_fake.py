@@ -90,7 +90,7 @@ def serve(conn):
                 for chan in arg.split(" ")[0].split(","):
                     send(f":{nick}!~zx@203.0.113.7 JOIN :{chan}")
                     send(
-                        f":{SERVER} 332 {nick} {chan} :ZX Spectrum chat | SpecTalkZX 1.4.1 Triton is out"
+                        f":{SERVER} 332 {nick} {chan} :ZX Spectrum chat | SpecTalkZX 1.4.2 Triton is out"
                     )
                     send(f":{SERVER} 333 {nick} {chan} retrogal 1790000000")
                     send(f":{SERVER} 353 {nick} = {chan} :{nick} " + " ".join(NICKS))

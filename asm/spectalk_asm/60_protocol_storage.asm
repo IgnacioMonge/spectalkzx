@@ -637,6 +637,9 @@ ELSE
 PUBLIC _esx_detect
 PUBLIC _esx_fseek_set
 EXTERN _spxn_rom_detect
+EXTERN _spxn_rom_ixcall
+EXTERN _spxn_regs
+EXTERN _font_lut
 EXTERN _esx_fclose
 EXTERN _esx_opendir
 EXTERN _esx_mkdir
@@ -738,6 +741,16 @@ _esx_detect:
     ld a, h
     or l
     jr nz, storage_false
+    ; Firmware 1.0 adds SPECTRANEXT operation 15 (build version); older
+    ; firmware returns carry. The 32-byte reply uses font_lut before DAT loads.
+    ld a, 15
+    ld (_spxn_regs), a
+    ld hl, _font_lut
+    ld (_spxn_regs + 5), hl
+    ld hl, 0x3EF0
+    call _spxn_rom_ixcall
+    bit 0, l
+    jr nz, storage_firmware_old
     ld hl, _K_DAT
     call _spxn_xfs_open_keep
     ld a, l
@@ -775,12 +788,17 @@ storage_false:
     ret
 
 
+storage_firmware_old:
+    ld hl, storage_firmware_error
+    jp _fatal_msg
 storage_dat_failed:
     ld hl, storage_dat_error
     jp _fatal_msg
 storage_ovl_failed:
     ld hl, storage_ovl_error
     jp _fatal_msg
+storage_firmware_error:
+    defm "FIRMWARE OUTDATED: SEE README", 0
 storage_dat_error:
     defm "DAT OPEN FAILED", 0
 storage_ovl_error:

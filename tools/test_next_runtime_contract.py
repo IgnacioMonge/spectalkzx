@@ -241,7 +241,7 @@ def main() -> None:
     assert "scrollback" not in makefile
     assert "c:\\dev\\spectalk-next" not in makefile
     assert 'irc client for zx spectrum next";' in source
-    assert 'db "spectalkzx 1.4.1: irc client for zx spectrum next",0' in text("overlay/earth_about_render.asm")
+    assert 'db "spectalkzx 1.4.2: irc client for zx spectrum next",0' in text("overlay/earth_about_render.asm")
     for bookmark in bookmark_sources:
         path_fn = bookmark[bookmark.index("static const char *bm_path") : bookmark.index("static const char *bm_line")]
         native = path_fn[path_fn.index("#elif defined(spectalk_next)") : path_fn.index("#else")]

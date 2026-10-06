@@ -18,6 +18,7 @@ def main():
         "_esx_fclose": 0x43C0, "_spxn_xfs_use_keep": 0x4400,
         "_spxn_xfs_fseek": 0x4440, "_spxn_xfs_release_keep": 0x4480,
         "fm_resources_closed": 0x44E0, "_spxn_xfs_close_active": 0x4500,
+        "_spxn_rom_ixcall": 0x4700,
     }
     for name, address in callbacks.items():
         jump(memory, symbols[name], address)
@@ -146,6 +147,16 @@ open_result:
     ld a,2
     ld ($510B),a
     ret
+    defs $4700-$,0
+    ld ($5132),hl
+    ld a,({symbols['_spxn_regs']})
+    ld ($5131),a
+    ld hl,({symbols['_spxn_regs'] + 5})
+    ld ($5134),hl
+    ld a,($5130)
+    ld l,a
+    ld h,0
+    ret
 """
     def fixture():
         sample = bytearray(memory)
@@ -162,6 +173,9 @@ open_result:
         detect = f"call {symbols['_esx_detect']}\nld ($5122),hl"
         result = probe(fixture(), detect)
         assert result[0x5122] == 1
+        assert result[0x5131] == 15, "firmware version operation"
+        assert int.from_bytes(result[0x5132:0x5134], "little") == 0x3EF0
+        assert int.from_bytes(result[0x5134:0x5136], "little") == symbols["_font_lut"]
         assert result[0x5101] == 2 and result[0x5104:0x5106] == b"\x03\x03"
         assert result[0x5102] == 0 and result[0x5106] == 1
         assert int.from_bytes(result[0x5110:0x5112], "little") == symbols["_K_DAT"]
@@ -177,19 +191,23 @@ open_result:
         assert repeated[0x5118:0x511A] == b"\0\0", "logical open did not rewind"
         assert repeated[symbols['_dat_keep']] == 7 and repeated[symbols['_ovl_keep']] == 8
 
-        for failure, released, directories in (("detect", 0, 0), ("DAT", 0, 0),
-                                               ("OVL", 1, 0), ("CFG", 2, 2)):
+        for failure, released, directories in (("detect", 0, 0), ("firmware", 0, 0),
+                                               ("DAT", 0, 0), ("OVL", 1, 0),
+                                               ("CFG", 2, 2)):
             sample = fixture()
             if failure == "detect": sample[0x5100] = 0
+            elif failure == "firmware": sample[0x5130] = 1
             elif failure == "DAT": sample[0x5103] = 1
             elif failure == "OVL": sample[0x5103] = 2
             else: sample[0x5107] = 1
             failed = probe(sample, detect)
-            if failure in ("DAT", "OVL"):
-                message = symbols['storage_dat_error' if failure == "DAT" else 'storage_ovl_error']
+            if failure in ("firmware", "DAT", "OVL"):
+                message = symbols[f"storage_{failure.lower()}_error"]
                 assert int.from_bytes(failed[0x5120:0x5122], "little") == message, failure
             else:
                 assert failed[0x5122] == 0, failure
+            if failure == "firmware":
+                assert failed[0x5101] == 0, "old firmware opened a resource"
             assert failed[symbols['_dat_keep']] == failed[symbols['_ovl_keep']] == 0
             assert failed[0x511D] == released and failed[0x5106] == directories, failure
 

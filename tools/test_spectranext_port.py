@@ -41,7 +41,7 @@ def network() -> None:
         'const char S_APPDESC[] = "IRC Client for ZX Spectrum";',
         "#endif",
     )
-    assert 'db "SPECTALKZX 1.4.1: IRC CLIENT FOR SPECTRANEXT",0' in text(
+    assert 'db "SPECTALKZX 1.4.2: IRC CLIENT FOR SPECTRANEXT",0' in text(
         "overlay/earth_about_render.asm"
     )
     assert "AT+" not in source and "uart_" not in source.lower()

@@ -18,14 +18,15 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Plataforma-ZX%20Spectrum%20%7C%20Next%20%7C%20Spectranext-blue" alt="Plataforma: ZX Spectrum, Next y Spectranext">
   <img src="https://img.shields.io/badge/Licencia-GPLv2-green" alt="Licencia: GPLv2">
-  <img src="https://img.shields.io/badge/Versión-1.4.1-orange" alt="Versión: 1.4.1">
+  <img src="https://img.shields.io/badge/Versión-1.4.2-orange" alt="Versión: 1.4.2">
 </p>
 
 Versión actual:
-[SpecTalkZX 1.4.1 Triton](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
+[SpecTalkZX 1.4.2 Triton](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.2).
 
-La versión 1.4.1 aprende el acceso a los servicios IRC en cualquier red, aguanta el tráfico intenso de los
-canales y dibuja el texto más rápido. Classic ZX, Spectrum Next nativo y
+La versión 1.4.2 arranca directamente desde la web con el firmware 1.0 de
+Spectranext. La serie 1.4 aprende el acceso a los servicios IRC en cualquier
+red, aguanta el tráfico intenso de los canales y dibuja el texto más rápido. Classic ZX, Spectrum Next nativo y
 Spectranext comparten la misma interfaz, los mismos comandos y el mismo formato
 de configuración.
 
@@ -33,7 +34,7 @@ de configuración.
 
 ## Índice
 
-- [Novedades principales de 1.4.1](#novedades-principales-de-141)
+- [Novedades principales de 1.4.2](#novedades-principales-de-142)
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Inicio rápido](#inicio-rápido)
@@ -51,8 +52,11 @@ de configuración.
 
 ---
 
-## Novedades principales de 1.4.1
+## Novedades principales de 1.4.2
 
+- **Spectranext desde la web**: **Load Resource URL** con la dirección del
+  proyecto arranca SpecTalkZX sin instalarlo. Requiere el firmware 1.0 del
+  cartucho.
 - **Acceso automático a servicios**: el acceso enviado a NickServ, NiCK, Q o
   cualquier otro servicio se aprende cuando el servicio responde y se envía en
   cada conexión.
@@ -74,7 +78,7 @@ visibles y las notas de compatibilidad.
 |---|---|---|---|
 | Classic | ZX Spectrum 48K, 128K, +2, +2A, +3 o compatible | SD con divMMC/esxDOS | UART compatible con ZX-Uno, como la de divTIESUS, con un ESP8266 con ESP-AT a 115200 baudios |
 | Next nativo | ZX Spectrum Next con NextZXOS/esxDOS | Tarjeta SD para el NEX y `/SYS/CONFIG` o `/SYS` escribible | ESP interno configurado |
-| Spectranext | Modelo de ZX Spectrum compatible con el cartucho Spectranext | XFS local del cartucho para configuración y marcadores | Wi-Fi del cartucho; firmware `0.9-6fc153a3` o posterior |
+| Spectranext | Modelo de ZX Spectrum compatible con el cartucho Spectranext | XFS local del cartucho para configuración y marcadores | Wi-Fi del cartucho; firmware `1.0` o posterior |
 
 Classic utiliza <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
 <code>SPECTALK.DAT</code>. Conserva los tres ficheros de la misma versión.
@@ -87,8 +91,8 @@ instala sus ficheros desde la web en el almacenamiento del cartucho.
 
 ### ZX Classic / divMMC
 
-1. Descarga `spectalk_divmmc_v1.4.1.zip` desde la
-   [versión 1.4.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
+1. Descarga `spectalk_divmmc_v1.4.2.zip` desde la
+   [versión 1.4.2](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.2).
 2. Copia <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
    <code>SPECTALK.DAT</code> al mismo directorio de la tarjeta SD.
 3. Configura el puente ESP-AT a **115200 baudios**. Las credenciales Wi-Fi se
@@ -101,8 +105,8 @@ instala sus ficheros desde la web en el almacenamiento del cartucho.
 
 ### Spectrum Next nativo
 
-1. Descarga `spectalk_next_v1.4.1.zip` desde la
-   [versión 1.4.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.1).
+1. Descarga `spectalk_next_v1.4.2.zip` desde la
+   [versión 1.4.2](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.2).
 2. Configura el ESP interno del Spectrum Next para la red Wi-Fi deseada.
 3. Copia <code>SPECTALK.NEX</code> a la tarjeta SD del Next.
 4. Ejecútalo desde el navegador de NextZXOS. La configuración y los marcadores
@@ -110,12 +114,24 @@ instala sus ficheros desde la web en el almacenamiento del cartucho.
 
 ### Cartucho Spectranext
 
-Requiere firmware del cartucho `0.9-6fc153a3` o posterior y conexión Wi-Fi.
-La configuración y los marcadores se guardan en el XFS local, en
+Ambas opciones requieren firmware del cartucho `1.0` o posterior y conexión
+Wi-Fi. Con un firmware anterior SpecTalkZX se detiene al arrancar con
+`FIRMWARE OUTDATED: SEE README`; actualiza antes el firmware del cartucho.
+La configuración y los marcadores se guardan siempre en el XFS local, en
 <code>/CFG</code>.
+
+**Arrancar desde la web.** No se instala nada y siempre obtienes la versión
+publicada.
 
 1. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
    <code>https://ignaciomonge.github.io/spectalkzx/</code>.
+2. SpecTalkZX arranca tras una breve pantalla de carga; cualquier tecla la
+   salta.
+
+**Instalar para usarlo sin la web.**
+
+1. Selecciona **Load Resource URL** e introduce:
+   <code>https://ignaciomonge.github.io/spectalkzx/install/</code>.
 2. El instalador guiado valida el paquete, escribe
    <code>SPECTALK.TAP</code>, <code>SPECTALK.OVL</code>,
    <code>SPECTALK.DAT</code> y <code>SPCTX.ZX</code> en el XFS local, y
@@ -123,10 +139,6 @@ La configuración y los marcadores se guardan en el XFS local, en
 3. En adelante inicia <code>SPCTX.ZX</code> desde el XFS local. Para
    actualizar, vuelve a ejecutar el instalador; se conservan
    <code>/CFG/SPECTALK.CFG</code> y los cinco marcadores.
-
-Arrancar SpecTalkZX directamente desde la web, sin instalarlo, todavía no está
-disponible: funciona desde un servidor HTTP local, pero aún no desde la
-dirección HTTPS.
 
 ---
 
@@ -590,10 +602,11 @@ Spectranext.
 | El indicador Classic permanece rojo | Alimentación, cableado y 115200 baudios del puente ESP-AT |
 | El arranque Classic muestra `FAIL` una vez | Pulsa una tecla: el reintento activa el control de flujo CTS del ESP para la sesión |
 | No se detecta Spectranext | Cartucho presente y `/CFG` disponible en XFS local |
+| Spectranext muestra `FIRMWARE OUTDATED: SEE README` | Actualiza el firmware del cartucho a `1.0` o posterior |
 | La red está lista pero IRC no conecta | Credenciales Wi-Fi, nombre del servidor y puerto IRC en texto plano |
 | El arranque se detiene en esxDOS/DAT | divMMC montado y los tres ficheros juntos de la misma compilación |
 | Fallan la ayuda, About o los marcadores | Falta `SPECTALK.OVL` o `SPECTALK.DAT`, o pertenece a otra compilación |
-| Spectranext no se instala | Firmware `0.9-6fc153a3` o posterior, Wi-Fi conectado y **Load Resource URL** con `https://ignaciomonge.github.io/spectalkzx/` |
+| Spectranext no arranca o no se instala | Firmware `1.0` o posterior, Wi-Fi conectado y **Load Resource URL** con `https://ignaciomonge.github.io/spectalkzx/` (o `/install/`) |
 | El reloj sigue en `00:00` | Acceso SNTP y zona numérica; Classic y Next nativo también admiten `!tz rtc` |
 | Falla NickServ | Usa `/id`, `nickpass=` o un nombre de servicio alternativo en `nickserv=` |
 | Demasiados JOIN/PART | Alterna `!traffic` |
